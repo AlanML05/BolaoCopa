@@ -5,6 +5,8 @@ import { StatCard } from "../components/StatCard";
 import { createBet, getMyBetsOverview } from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
+const KNOCKOUT_TAB_ID = "knockout";
+
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
     accumulator[match.id] = {
@@ -15,13 +17,64 @@ function createDefaultForms(matches) {
   }, {});
 }
 
+function getGroupKey(match) {
+  return match.group ?? match.grupo ?? match.stage?.replace("Grupo ", "") ?? "Sem grupo";
+}
+
+function buildMatchTabs(matches) {
+  const groups = new Map();
+  const knockoutMatches = [];
+
+  matches.forEach((match) => {
+    if (match.phase === "knockout") {
+      knockoutMatches.push(match);
+      return;
+    }
+
+    const group = getGroupKey(match);
+    const id = `group-${group}`;
+
+    if (!groups.has(id)) {
+      groups.set(id, {
+        id,
+        label: `Grupo ${group}`,
+        sortKey: group,
+        matches: [],
+      });
+    }
+
+    groups.get(id).matches.push(match);
+  });
+
+  const groupTabs = Array.from(groups.values()).sort((first, second) =>
+    first.sortKey.localeCompare(second.sortKey, "pt-BR", { numeric: true }),
+  );
+
+  return [
+    ...groupTabs,
+    {
+      id: KNOCKOUT_TAB_ID,
+      label: "Mata-Mata",
+      sortKey: "zz",
+      matches: knockoutMatches,
+    },
+  ];
+}
+
 export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
   const [forms, setForms] = useState({});
+  const [activeTab, setActiveTab] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -38,6 +91,13 @@ export function MyBetsPage({ sessionUser }) {
 
         setOverview(payload);
         setForms(createDefaultForms(payload.upcoming_matches));
+        setActiveTab((current) => {
+          const nextTabs = buildMatchTabs(payload.upcoming_matches);
+          if (nextTabs.some((tab) => tab.id === current)) {
+            return current;
+          }
+          return nextTabs[0]?.id ?? KNOCKOUT_TAB_ID;
+        });
       } catch (requestError) {
         if (active) {
           setError(requestError.message);
@@ -90,6 +150,12 @@ export function MyBetsPage({ sessionUser }) {
       const refreshed = await getMyBetsOverview(sessionUser.id);
       setOverview(refreshed);
       setForms(createDefaultForms(refreshed.upcoming_matches));
+      setActiveTab((current) => {
+        const nextTabs = buildMatchTabs(refreshed.upcoming_matches);
+        return nextTabs.some((tab) => tab.id === current)
+          ? current
+          : nextTabs[0]?.id ?? KNOCKOUT_TAB_ID;
+      });
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
@@ -115,16 +181,22 @@ export function MyBetsPage({ sessionUser }) {
     );
   }
 
+  const tabs = buildMatchTabs(overview.upcoming_matches);
+  const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const groupStageComplete = Boolean(overview.metadata?.group_stage_complete);
+  const isKnockoutTab = selectedTab?.id === KNOCKOUT_TAB_ID;
+  const visibleMatches = isKnockoutTab && !groupStageComplete ? [] : selectedTab?.matches ?? [];
+
   return (
-    <div className="space-y-8">
-      <section className="panel px-6 py-6">
+    <div className="space-y-7">
+      <section className="panel border-accent/10 px-6 py-7">
         <p className="eyebrow">Area do participante</p>
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
             <p className="subtle-copy mt-3">
-              Voce pode cadastrar apenas um palpite por partida futura. Depois de salvo, o
-              palpite fica bloqueado para edicao, mantendo a regra do MVP.
+              Navegue por grupo, registre palpites em partidas abertas e acompanhe o bloqueio
+              automatico de 30 minutos antes do kickoff.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -142,7 +214,7 @@ export function MyBetsPage({ sessionUser }) {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Jogos futuros"
           value={overview.summary.upcoming_matches}
@@ -161,6 +233,11 @@ export function MyBetsPage({ sessionUser }) {
           caption="Partidas futuras que seguem liberadas para sua primeira aposta."
           tone="warning"
         />
+        <StatCard
+          label="Bloqueio"
+          value={`${overview.metadata?.bet_lock_minutes ?? 30} min`}
+          caption="Palpites encerram antes do inicio de cada partida."
+        />
       </section>
 
       {notice ? (
@@ -175,29 +252,74 @@ export function MyBetsPage({ sessionUser }) {
         </section>
       ) : null}
 
-      <section className="space-y-4">
-        <div className="flex items-end justify-between gap-4">
+      <section className="space-y-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="eyebrow">Cadastro</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Jogos futuros disponiveis
+              Partidas por fase
             </h3>
           </div>
-          <p className="text-sm text-muted">Sem acesso a ranking, pontos ou palpites de terceiros.</p>
+          <p className="text-sm text-muted">
+            A aba Mata-Mata libera palpites somente depois da Fase de Grupos.
+          </p>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          {overview.upcoming_matches.map((match) => (
-            <MatchBetCard
-              key={match.id}
-              match={match}
-              formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
-              submitting={savingMatchId === match.id}
-              onFieldChange={handleFieldChange}
-              onSubmit={handleSubmit}
-            />
-          ))}
+        <div className="panel overflow-hidden p-2">
+          <div className="flex gap-2 overflow-x-auto p-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                  tab.id === selectedTab?.id
+                    ? "bg-accent text-canvas shadow-[0_12px_34px_rgba(139,213,255,0.18)]"
+                    : "border border-line/80 bg-canvas/70 text-muted hover:border-accent/50 hover:text-ink"
+                }`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+                <span className="ml-2 rounded-full bg-black/20 px-2 py-0.5 text-xs">
+                  {tab.matches.length}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
+
+        {isKnockoutTab && !groupStageComplete ? (
+          <section className="panel-strong border-warning/20 px-6 py-8">
+            <p className="eyebrow">Mata-Mata</p>
+            <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
+              Aguardando definicao da Fase de Grupos
+            </h4>
+            <p className="subtle-copy mt-3 max-w-2xl">
+              Assim que todos os jogos de grupo tiverem resultado informado pelo admin, os
+              confrontos eliminatorios ficam visiveis e liberados conforme a janela de 30 minutos.
+            </p>
+          </section>
+        ) : visibleMatches.length > 0 ? (
+          <div className="grid gap-5 xl:grid-cols-2">
+            {visibleMatches.map((match) => (
+              <MatchBetCard
+                key={match.id}
+                match={match}
+                formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                currentTime={currentTime}
+                submitting={savingMatchId === match.id}
+                onFieldChange={handleFieldChange}
+                onSubmit={handleSubmit}
+              />
+            ))}
+          </div>
+        ) : (
+          <section className="panel px-6 py-8">
+            <p className="text-sm font-semibold text-ink">Nenhuma partida nesta aba.</p>
+            <p className="mt-2 text-sm text-muted">
+              Quando novas partidas forem mockadas para esta fase, elas aparecerao aqui.
+            </p>
+          </section>
+        )}
       </section>
 
       <section className="space-y-4">

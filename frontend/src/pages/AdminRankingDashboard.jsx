@@ -150,8 +150,8 @@ export function AdminRankingDashboard({ sessionUser }) {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="panel px-6 py-6">
+    <div className="space-y-7">
+      <section className="panel border-accent/10 px-6 py-7">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <p className="eyebrow">Visao administrativa</p>
@@ -230,7 +230,7 @@ export function AdminRankingDashboard({ sessionUser }) {
           </div>
           <div className="space-y-4">
             {dashboard.prize_pool.distribution.map((item) => (
-              <article key={item.position} className="panel-strong px-5 py-5">
+              <article key={item.position} className="panel-strong border-accent/10 px-5 py-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-xs uppercase tracking-[0.24em] text-muted">
@@ -273,7 +273,7 @@ export function AdminRankingDashboard({ sessionUser }) {
             {dashboard.users.map((user) => (
               <article
                 key={user.id}
-                className="panel flex items-center justify-between gap-4 px-5 py-4"
+                className="panel flex items-center justify-between gap-4 px-5 py-4 transition hover:border-accent/30"
               >
                 <div>
                   <p className="font-semibold text-ink">{user.name}</p>

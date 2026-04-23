@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 BET_PRICE = 100
 PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
+BET_LOCK_MINUTES = 30
+SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
 
 app = FastAPI(
@@ -24,6 +26,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def mock_kickoff(minutes_from_now: int) -> str:
+    return (datetime.now(SAO_PAULO_TZ) + timedelta(minutes=minutes_from_now)).replace(microsecond=0).isoformat()
 
 USERS: list[dict[str, Any]] = [
     {
@@ -102,6 +108,10 @@ MATCHES: list[dict[str, Any]] = [
     {
         "id": "match-001",
         "stage": "Grupo A",
+        "group": "A",
+        "grupo": "A",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Brasil",
         "away_team": "Japao",
         "kickoff_at": "2026-04-17T19:00:00-03:00",
@@ -113,6 +123,10 @@ MATCHES: list[dict[str, Any]] = [
     {
         "id": "match-002",
         "stage": "Grupo B",
+        "group": "B",
+        "grupo": "B",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Franca",
         "away_team": "Mexico",
         "kickoff_at": "2026-04-18T16:00:00-03:00",
@@ -124,6 +138,10 @@ MATCHES: list[dict[str, Any]] = [
     {
         "id": "match-003",
         "stage": "Grupo C",
+        "group": "C",
+        "grupo": "C",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Argentina",
         "away_team": "Estados Unidos",
         "kickoff_at": "2026-04-19T20:00:00-03:00",
@@ -135,6 +153,10 @@ MATCHES: list[dict[str, Any]] = [
     {
         "id": "match-004",
         "stage": "Grupo D",
+        "group": "D",
+        "grupo": "D",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Alemanha",
         "away_team": "Senegal",
         "kickoff_at": "2026-04-20T18:00:00-03:00",
@@ -146,6 +168,10 @@ MATCHES: list[dict[str, Any]] = [
     {
         "id": "match-005",
         "stage": "Grupo E",
+        "group": "E",
+        "grupo": "E",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Espanha",
         "away_team": "Canada",
         "kickoff_at": "2026-04-21T17:00:00-03:00",
@@ -156,10 +182,14 @@ MATCHES: list[dict[str, Any]] = [
     },
     {
         "id": "match-006",
-        "stage": "Grupo F",
+        "stage": "Grupo A",
+        "group": "A",
+        "grupo": "A",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Portugal",
         "away_team": "Coreia do Sul",
-        "kickoff_at": "2026-04-22T19:00:00-03:00",
+        "kickoff_at": mock_kickoff(240),
         "stadium": "BC Place",
         "status": "scheduled",
         "home_score": None,
@@ -167,10 +197,14 @@ MATCHES: list[dict[str, Any]] = [
     },
     {
         "id": "match-007",
-        "stage": "Grupo G",
+        "stage": "Grupo B",
+        "group": "B",
+        "grupo": "B",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Inglaterra",
         "away_team": "Uruguai",
-        "kickoff_at": "2026-04-23T10:00:00-03:00",
+        "kickoff_at": mock_kickoff(20),
         "stadium": "Lumen Field",
         "status": "scheduled",
         "home_score": None,
@@ -178,10 +212,14 @@ MATCHES: list[dict[str, Any]] = [
     },
     {
         "id": "match-008",
-        "stage": "Grupo H",
+        "stage": "Grupo C",
+        "group": "C",
+        "grupo": "C",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Holanda",
         "away_team": "Marrocos",
-        "kickoff_at": "2026-06-15T20:00:00-03:00",
+        "kickoff_at": mock_kickoff(1440),
         "stadium": "NRG Stadium",
         "status": "scheduled",
         "home_score": None,
@@ -189,11 +227,45 @@ MATCHES: list[dict[str, Any]] = [
     },
     {
         "id": "match-009",
-        "stage": "Grupo I",
+        "stage": "Grupo D",
+        "group": "D",
+        "grupo": "D",
+        "phase": "group",
+        "phase_label": "Fase de Grupos",
         "home_team": "Italia",
         "away_team": "Colombia",
-        "kickoff_at": "2026-06-16T18:00:00-03:00",
+        "kickoff_at": mock_kickoff(2880),
         "stadium": "Lincoln Financial Field",
+        "status": "scheduled",
+        "home_score": None,
+        "away_score": None,
+    },
+    {
+        "id": "match-010",
+        "stage": "Oitavas de Final",
+        "group": None,
+        "grupo": None,
+        "phase": "knockout",
+        "phase_label": "Mata-Mata",
+        "home_team": "1o Grupo A",
+        "away_team": "2o Grupo B",
+        "kickoff_at": mock_kickoff(10080),
+        "stadium": "Hard Rock Stadium",
+        "status": "scheduled",
+        "home_score": None,
+        "away_score": None,
+    },
+    {
+        "id": "match-011",
+        "stage": "Oitavas de Final",
+        "group": None,
+        "grupo": None,
+        "phase": "knockout",
+        "phase_label": "Mata-Mata",
+        "home_team": "1o Grupo C",
+        "away_team": "2o Grupo D",
+        "kickoff_at": mock_kickoff(11520),
+        "stadium": "Gillette Stadium",
         "status": "scheduled",
         "home_score": None,
         "away_score": None,
@@ -318,13 +390,50 @@ def is_match_finished(match: dict[str, Any]) -> bool:
     return match["status"] == "finished" and match["home_score"] is not None and match["away_score"] is not None
 
 
+def is_group_stage_match(match: dict[str, Any]) -> bool:
+    return match.get("phase", "group") == "group"
+
+
+def is_knockout_match(match: dict[str, Any]) -> bool:
+    return match.get("phase") == "knockout"
+
+
+def is_group_stage_complete() -> bool:
+    group_matches = [match for match in MATCHES if is_group_stage_match(match)]
+    return bool(group_matches) and all(is_match_finished(match) for match in group_matches)
+
+
+def get_betting_closes_at(match: dict[str, Any]) -> datetime:
+    return parse_datetime(match["kickoff_at"]) - timedelta(minutes=BET_LOCK_MINUTES)
+
+
 def is_match_upcoming(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
     return match["status"] == "scheduled" and parse_datetime(match["kickoff_at"]) > now
 
 
 def is_match_open_for_bet(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
-    return is_match_upcoming(match, reference_time)
+    if is_knockout_match(match) and not is_group_stage_complete():
+        return False
+
+    now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
+    return is_match_upcoming(match, now) and now < get_betting_closes_at(match)
+
+
+def get_betting_closed_reason(match: dict[str, Any], reference_time: datetime | None = None) -> str | None:
+    if is_knockout_match(match) and not is_group_stage_complete():
+        return "Aguardando definicao da Fase de Grupos."
+
+    now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
+    kickoff_at = parse_datetime(match["kickoff_at"])
+
+    if match["status"] != "scheduled" or kickoff_at <= now:
+        return "Palpite encerrado."
+
+    if now >= get_betting_closes_at(match):
+        return f"Palpite encerrado: bloqueio de {BET_LOCK_MINUTES} minutos antes do jogo."
+
+    return None
 
 
 def is_match_available_for_result_entry(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
@@ -445,6 +554,8 @@ def build_ranking() -> dict[str, Any]:
                 "match_id": match["id"],
                 "match_label": match_label(match),
                 "stage": match["stage"],
+                "group": match.get("group"),
+                "phase": match.get("phase", "group"),
                 "status": match["status"],
                 "predicted_score": f'{bet["predicted_home_score"]} x {bet["predicted_away_score"]}',
                 "actual_score": None if not is_match_finished(match) else f'{match["home_score"]} x {match["away_score"]}',
@@ -507,18 +618,25 @@ def build_ranking() -> dict[str, Any]:
 
 
 def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
+    betting_closes_at = get_betting_closes_at(match)
     return {
         "id": match["id"],
         "label": match_label(match),
         "stage": match["stage"],
+        "group": match.get("group"),
+        "grupo": match.get("grupo"),
+        "phase": match.get("phase", "group"),
+        "phase_label": match.get("phase_label", "Fase de Grupos"),
         "home_team": match["home_team"],
         "away_team": match["away_team"],
         "kickoff_at": match["kickoff_at"],
+        "betting_closes_at": betting_closes_at.isoformat(),
         "stadium": match["stadium"],
         "status": match["status"],
         "home_score": match["home_score"],
         "away_score": match["away_score"],
         "betting_open": is_match_open_for_bet(match),
+        "betting_closed_reason": get_betting_closed_reason(match),
         "has_result": is_match_finished(match),
         "result_entry_allowed": is_match_available_for_result_entry(match),
     }
@@ -528,6 +646,10 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
     ranking_data = build_ranking()
     return {
         **ranking_data,
+        "metadata": {
+            "group_stage_complete": is_group_stage_complete(),
+            "bet_lock_minutes": BET_LOCK_MINUTES,
+        },
         "users": [serialize_user(user) for user in USERS if user["role"] == "user"],
         "matches": [serialize_match(match) for match in sorted(MATCHES, key=lambda item: parse_datetime(item["kickoff_at"]))],
     }
@@ -592,27 +714,14 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
         if not is_match_upcoming(match):
             continue
 
-        upcoming_matches.append(
-            {
-                "id": match["id"],
-                "label": match_label(match),
-                "stage": match["stage"],
-                "home_team": match["home_team"],
-                "away_team": match["away_team"],
-                "kickoff_at": match["kickoff_at"],
-                "stadium": match["stadium"],
-                "status": match["status"],
-                "betting_open": is_match_open_for_bet(match),
-                "existing_bet": None
-                if existing_bet is None
-                else {
-                    "bet_id": existing_bet["id"],
-                    "predicted_home_score": existing_bet["predicted_home_score"],
-                    "predicted_away_score": existing_bet["predicted_away_score"],
-                    "created_at": existing_bet["created_at"],
-                },
-            }
-        )
+        match_payload = serialize_match(match)
+        match_payload["existing_bet"] = None if existing_bet is None else {
+            "bet_id": existing_bet["id"],
+            "predicted_home_score": existing_bet["predicted_home_score"],
+            "predicted_away_score": existing_bet["predicted_away_score"],
+            "created_at": existing_bet["created_at"],
+        }
+        upcoming_matches.append(match_payload)
 
     submitted_bets = []
     for bet in sorted(user_bets, key=lambda item: parse_datetime(get_match(item["match_id"])["kickoff_at"])):
@@ -624,22 +733,17 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
                 "predicted_home_score": bet["predicted_home_score"],
                 "predicted_away_score": bet["predicted_away_score"],
                 "match": {
-                    "id": match["id"],
-                    "label": match_label(match),
-                    "stage": match["stage"],
-                    "home_team": match["home_team"],
-                    "away_team": match["away_team"],
-                    "kickoff_at": match["kickoff_at"],
-                    "stadium": match["stadium"],
-                    "status": match["status"],
-                    "home_score": match["home_score"],
-                    "away_score": match["away_score"],
+                    **serialize_match(match),
                 },
             }
         )
 
     return {
         "user": serialize_user(current_user),
+        "metadata": {
+            "group_stage_complete": is_group_stage_complete(),
+            "bet_lock_minutes": BET_LOCK_MINUTES,
+        },
         "summary": {
             "upcoming_matches": len(upcoming_matches),
             "registered_upcoming_bets": sum(1 for match in upcoming_matches if match["existing_bet"] is not None),
@@ -659,10 +763,11 @@ def create_bet(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuarios comuns podem apostar.")
 
     match = get_match(payload.match_id)
-    if not is_match_open_for_bet(match):
+    betting_closed_reason = get_betting_closed_reason(match)
+    if betting_closed_reason is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e permitido apostar em partidas encerradas ou bloqueadas.",
+            detail=betting_closed_reason,
         )
 
     existing_bet = next(

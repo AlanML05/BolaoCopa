@@ -22,7 +22,7 @@ export function MatchResultManager({
 
       <div className="grid gap-4 2xl:grid-cols-2">
         {matches.map((match) => (
-          <article key={match.id} className="panel-strong px-5 py-5">
+          <article key={match.id} className="panel-strong px-5 py-5 transition hover:border-accent/30">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="eyebrow">{match.stage}</p>
@@ -50,7 +50,7 @@ export function MatchResultManager({
               </span>
             </div>
 
-            <div className="mt-6 rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
+            <div className="mt-6 rounded-2xl border border-line/80 bg-canvas/80 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.22em] text-muted">Placar atual</p>
               <p className="mt-3 text-2xl font-semibold text-ink">
                 {formatScore(match.home_score, match.away_score)}
