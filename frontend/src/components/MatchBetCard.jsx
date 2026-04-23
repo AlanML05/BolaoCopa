@@ -3,14 +3,23 @@ import { formatDateTime, formatMatchDateTime } from "../services/formatters";
 export function MatchBetCard({
   match,
   formState,
+  currentTime = Date.now(),
   submitting,
   onFieldChange,
   onSubmit,
 }) {
   const hasExistingBet = Boolean(match.existing_bet);
+  const kickoffTime = Date.parse(match.kickoff_at);
+  const lockWindowMs = 30 * 60 * 1000;
+  const closedByClientClock =
+    Number.isFinite(kickoffTime) && kickoffTime - currentTime <= lockWindowMs;
+  const bettingEnabled = Boolean(match.betting_open) && !closedByClientClock;
+  const closedReason =
+    match.betting_closed_reason ??
+    (closedByClientClock ? "Palpite encerrado: janela de 30 minutos atingida." : "");
 
   return (
-    <article className="panel-strong flex h-full flex-col px-5 py-5">
+    <article className="panel-strong flex h-full flex-col overflow-hidden px-5 py-5 transition hover:border-accent/30">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="eyebrow">{match.stage}</p>
@@ -23,17 +32,17 @@ export function MatchBetCard({
           className={`data-pill ${
             hasExistingBet
               ? "border-success/20 text-success"
-              : match.betting_open
+              : bettingEnabled
                 ? "border-accent/20 text-accent"
-                : "border-warning/20 text-warning"
+                : "border-warning/30 bg-warning/5 text-warning"
           }`}
         >
-          {hasExistingBet ? "Palpite salvo" : match.betting_open ? "Aberto" : "Fechado"}
+          {hasExistingBet ? "Palpite salvo" : bettingEnabled ? "Aberto" : "Palpite encerrado"}
         </span>
       </div>
 
       {hasExistingBet ? (
-        <div className="mt-8 rounded-3xl border border-success/15 bg-success/5 px-4 py-4">
+        <div className="mt-8 rounded-2xl border border-success/15 bg-success/5 px-4 py-4">
           <p className="text-sm font-semibold text-success">Palpite bloqueado para edicao</p>
           <p className="mt-3 text-3xl font-semibold text-ink">
             {match.existing_bet.predicted_home_score} x {match.existing_bet.predicted_away_score}
@@ -50,6 +59,12 @@ export function MatchBetCard({
             onSubmit(match.id);
           }}
         >
+          {!bettingEnabled ? (
+            <div className="rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+              {closedReason || "Palpite encerrado."}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div>
               <label className="mb-2 block text-xs uppercase tracking-[0.24em] text-muted">
@@ -62,7 +77,7 @@ export function MatchBetCard({
                 className="field text-center text-xl font-semibold"
                 value={formState.homeScore}
                 onChange={(event) => onFieldChange(match.id, "homeScore", event.target.value)}
-                disabled={!match.betting_open || submitting}
+                disabled={!bettingEnabled || submitting}
               />
             </div>
 
@@ -79,7 +94,7 @@ export function MatchBetCard({
                 className="field text-center text-xl font-semibold"
                 value={formState.awayScore}
                 onChange={(event) => onFieldChange(match.id, "awayScore", event.target.value)}
-                disabled={!match.betting_open || submitting}
+                disabled={!bettingEnabled || submitting}
               />
             </div>
           </div>
@@ -87,9 +102,9 @@ export function MatchBetCard({
           <button
             type="submit"
             className="button-primary w-full"
-            disabled={!match.betting_open || submitting}
+            disabled={!bettingEnabled || submitting}
           >
-            {submitting ? "Salvando..." : "Registrar palpite"}
+            {submitting ? "Salvando..." : bettingEnabled ? "Registrar palpite" : "Palpite encerrado"}
           </button>
         </form>
       )}

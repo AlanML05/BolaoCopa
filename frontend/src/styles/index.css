@@ -10,9 +10,8 @@
   html {
     min-height: 100%;
     background:
-      radial-gradient(circle at top left, rgba(96, 165, 250, 0.16), transparent 24%),
-      radial-gradient(circle at top right, rgba(45, 212, 191, 0.12), transparent 20%),
-      linear-gradient(180deg, #05070a 0%, #0a0f15 52%, #06090d 100%);
+      radial-gradient(circle at top left, rgba(139, 213, 255, 0.12), transparent 28%),
+      linear-gradient(180deg, #05070a 0%, #090f17 48%, #05080c 100%);
   }
 
   body {
@@ -36,11 +35,11 @@
 
 @layer components {
   .panel {
-    @apply rounded-[28px] border border-line/80 bg-panel/85 shadow-glow backdrop-blur-xl;
+    @apply rounded-2xl border border-line/75 bg-panel/80 shadow-glow backdrop-blur-xl;
   }
 
   .panel-strong {
-    @apply rounded-[28px] border border-line bg-panel-strong/95 shadow-glow backdrop-blur-xl;
+    @apply rounded-2xl border border-line/90 bg-panel-strong/95 shadow-glow backdrop-blur-xl;
   }
 
   .eyebrow {
@@ -56,18 +55,18 @@
   }
 
   .field {
-    @apply w-full rounded-2xl border border-line/90 bg-canvas/80 px-4 py-3 text-ink outline-none transition focus:border-accent/80 focus:ring-2 focus:ring-accent/20;
+    @apply w-full rounded-xl border border-line/90 bg-canvas/80 px-4 py-3 text-ink outline-none transition placeholder:text-muted/60 focus:border-accent/80 focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:border-line/50 disabled:bg-canvas/35 disabled:text-muted;
   }
 
   .button-primary {
-    @apply inline-flex items-center justify-center rounded-2xl bg-ink px-4 py-3 text-sm font-semibold text-canvas transition hover:bg-accent hover:text-canvas disabled:cursor-not-allowed disabled:bg-ink/25 disabled:text-muted;
+    @apply inline-flex items-center justify-center rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-canvas shadow-[0_14px_34px_rgba(139,213,255,0.2)] transition hover:bg-ink hover:text-canvas disabled:cursor-not-allowed disabled:bg-ink/20 disabled:text-muted disabled:shadow-none;
   }
 
   .button-secondary {
-    @apply inline-flex items-center justify-center rounded-2xl border border-line bg-panel px-4 py-3 text-sm font-semibold text-ink transition hover:border-accent/60 hover:text-accent;
+    @apply inline-flex items-center justify-center rounded-xl border border-line bg-panel px-4 py-3 text-sm font-semibold text-ink transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-60;
   }
 
   .data-pill {
-    @apply inline-flex items-center rounded-full border border-line/80 bg-canvas/80 px-3 py-1 text-xs font-medium tracking-[0.02em] text-muted;
+    @apply inline-flex items-center rounded-full border border-line/80 bg-canvas/75 px-3 py-1 text-xs font-medium tracking-[0.02em] text-muted;
   }
 }
