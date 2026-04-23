@@ -40,6 +40,12 @@ export function AdminRankingDashboard({ sessionUser }) {
     setResultForms(createResultForms(nextDashboard.matches));
   }
 
+  async function refreshDashboard() {
+    const payload = await getAdminDashboard(sessionUser.id);
+    syncDashboard(payload);
+    return payload;
+  }
+
   useEffect(() => {
     let active = true;
 
@@ -77,7 +83,7 @@ export function AdminRankingDashboard({ sessionUser }) {
 
     try {
       const response = await updatePaymentStatus(sessionUser.id, user.id, !user.paid);
-      syncDashboard(response.dashboard);
+      await refreshDashboard();
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
@@ -98,10 +104,11 @@ export function AdminRankingDashboard({ sessionUser }) {
 
   async function handleMatchResultSave(matchId) {
     const form = resultForms[matchId];
+    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
     const homeScore = Number(form?.homeScore);
     const awayScore = Number(form?.awayScore);
 
-    if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
       setError("Preencha os dois placares reais antes de salvar.");
       setNotice("");
       return;
@@ -116,7 +123,7 @@ export function AdminRankingDashboard({ sessionUser }) {
         home_score: homeScore,
         away_score: awayScore,
       });
-      syncDashboard(response.dashboard);
+      await refreshDashboard();
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
