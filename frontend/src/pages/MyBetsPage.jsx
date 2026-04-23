@@ -68,10 +68,11 @@ export function MyBetsPage({ sessionUser }) {
 
   async function handleSubmit(matchId) {
     const form = forms[matchId];
+    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
     const homeScore = Number(form?.homeScore);
     const awayScore = Number(form?.awayScore);
 
-    if (Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
       setNotice("Preencha os dois placares antes de salvar.");
       return;
     }
