@@ -1,4 +1,4 @@
-# Bolao Copa OST MVP
+# Bolao Copa do Mundo
 
 Estrutura inicial do MVP do bolao da Copa do Mundo de 2026 para a OST.
 
