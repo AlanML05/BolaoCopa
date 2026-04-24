@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from pymysql.err import IntegrityError
+
+from .db import db_cursor
 
 BET_PRICE = 100
 PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
@@ -13,10 +17,14 @@ BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
 
+USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou"
+MATCH_COLUMNS = "id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, placar_b, finalizado"
+BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, created_at"
+
 app = FastAPI(
     title="Bolao Copa OST API",
-    version="0.1.0",
-    summary="API mockada em memoria para o MVP do Bolao da Copa 2026",
+    version="0.2.0",
+    summary="API do MVP do Bolao da Copa 2026 com persistencia em MySQL",
 )
 
 app.add_middleware(
@@ -26,294 +34,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def mock_kickoff(minutes_from_now: int) -> str:
-    return (datetime.now(SAO_PAULO_TZ) + timedelta(minutes=minutes_from_now)).replace(microsecond=0).isoformat()
-
-USERS: list[dict[str, Any]] = [
-    {
-        "id": "admin-ost",
-        "name": "Mariana Admin",
-        "username": "mariana.admin",
-        "email": "admin@ost.com.br",
-        "password": "admin123",
-        "role": "admin",
-        "department": "Operacoes",
-        "paid": False,
-    },
-    {
-        "id": "ana-silva",
-        "name": "Ana Silva",
-        "username": "ana.silva",
-        "email": "ana@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "Financeiro",
-        "paid": True,
-    },
-    {
-        "id": "bruno-costa",
-        "name": "Bruno Costa",
-        "username": "bruno.costa",
-        "email": "bruno@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "Comercial",
-        "paid": True,
-    },
-    {
-        "id": "carla-souza",
-        "name": "Carla Souza",
-        "username": "carla.souza",
-        "email": "carla@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "RH",
-        "paid": False,
-    },
-    {
-        "id": "diego-lima",
-        "name": "Diego Lima",
-        "username": "diego.lima",
-        "email": "diego@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "Tecnologia",
-        "paid": True,
-    },
-    {
-        "id": "elisa-almeida",
-        "name": "Elisa Almeida",
-        "username": "elisa.almeida",
-        "email": "elisa@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "Marketing",
-        "paid": True,
-    },
-    {
-        "id": "felipe-rocha",
-        "name": "Felipe Rocha",
-        "username": "felipe.rocha",
-        "email": "felipe@ost.com.br",
-        "password": "123456",
-        "role": "user",
-        "department": "Juridico",
-        "paid": False,
-    },
-]
-
-MATCHES: list[dict[str, Any]] = [
-    {
-        "id": "match-001",
-        "stage": "Grupo A",
-        "group": "A",
-        "grupo": "A",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Brasil",
-        "away_team": "Japao",
-        "kickoff_at": "2026-04-17T19:00:00-03:00",
-        "stadium": "MetLife Stadium",
-        "status": "finished",
-        "home_score": 2,
-        "away_score": 1,
-    },
-    {
-        "id": "match-002",
-        "stage": "Grupo B",
-        "group": "B",
-        "grupo": "B",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Franca",
-        "away_team": "Mexico",
-        "kickoff_at": "2026-04-18T16:00:00-03:00",
-        "stadium": "SoFi Stadium",
-        "status": "finished",
-        "home_score": 1,
-        "away_score": 1,
-    },
-    {
-        "id": "match-003",
-        "stage": "Grupo C",
-        "group": "C",
-        "grupo": "C",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Argentina",
-        "away_team": "Estados Unidos",
-        "kickoff_at": "2026-04-19T20:00:00-03:00",
-        "stadium": "AT&T Stadium",
-        "status": "finished",
-        "home_score": 0,
-        "away_score": 2,
-    },
-    {
-        "id": "match-004",
-        "stage": "Grupo D",
-        "group": "D",
-        "grupo": "D",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Alemanha",
-        "away_team": "Senegal",
-        "kickoff_at": "2026-04-20T18:00:00-03:00",
-        "stadium": "Mercedes-Benz Stadium",
-        "status": "finished",
-        "home_score": 3,
-        "away_score": 0,
-    },
-    {
-        "id": "match-005",
-        "stage": "Grupo E",
-        "group": "E",
-        "grupo": "E",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Espanha",
-        "away_team": "Canada",
-        "kickoff_at": "2026-04-21T17:00:00-03:00",
-        "stadium": "Estadio Akron",
-        "status": "finished",
-        "home_score": 0,
-        "away_score": 0,
-    },
-    {
-        "id": "match-006",
-        "stage": "Grupo A",
-        "group": "A",
-        "grupo": "A",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Portugal",
-        "away_team": "Coreia do Sul",
-        "kickoff_at": mock_kickoff(240),
-        "stadium": "BC Place",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-    {
-        "id": "match-007",
-        "stage": "Grupo B",
-        "group": "B",
-        "grupo": "B",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Inglaterra",
-        "away_team": "Uruguai",
-        "kickoff_at": mock_kickoff(20),
-        "stadium": "Lumen Field",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-    {
-        "id": "match-008",
-        "stage": "Grupo C",
-        "group": "C",
-        "grupo": "C",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Holanda",
-        "away_team": "Marrocos",
-        "kickoff_at": mock_kickoff(1440),
-        "stadium": "NRG Stadium",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-    {
-        "id": "match-009",
-        "stage": "Grupo D",
-        "group": "D",
-        "grupo": "D",
-        "phase": "group",
-        "phase_label": "Fase de Grupos",
-        "home_team": "Italia",
-        "away_team": "Colombia",
-        "kickoff_at": mock_kickoff(2880),
-        "stadium": "Lincoln Financial Field",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-    {
-        "id": "match-010",
-        "stage": "Oitavas de Final",
-        "group": None,
-        "grupo": None,
-        "phase": "knockout",
-        "phase_label": "Mata-Mata",
-        "home_team": "1o Grupo A",
-        "away_team": "2o Grupo B",
-        "kickoff_at": mock_kickoff(10080),
-        "stadium": "Hard Rock Stadium",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-    {
-        "id": "match-011",
-        "stage": "Oitavas de Final",
-        "group": None,
-        "grupo": None,
-        "phase": "knockout",
-        "phase_label": "Mata-Mata",
-        "home_team": "1o Grupo C",
-        "away_team": "2o Grupo D",
-        "kickoff_at": mock_kickoff(11520),
-        "stadium": "Gillette Stadium",
-        "status": "scheduled",
-        "home_score": None,
-        "away_score": None,
-    },
-]
-
-BETS: list[dict[str, Any]] = [
-    {"id": "bet-001", "user_id": "ana-silva", "match_id": "match-001", "predicted_home_score": 2, "predicted_away_score": 1, "created_at": "2026-04-10T09:15:00-03:00"},
-    {"id": "bet-002", "user_id": "ana-silva", "match_id": "match-002", "predicted_home_score": 0, "predicted_away_score": 0, "created_at": "2026-04-10T09:16:00-03:00"},
-    {"id": "bet-003", "user_id": "ana-silva", "match_id": "match-003", "predicted_home_score": 1, "predicted_away_score": 2, "created_at": "2026-04-10T09:17:00-03:00"},
-    {"id": "bet-004", "user_id": "ana-silva", "match_id": "match-004", "predicted_home_score": 2, "predicted_away_score": 0, "created_at": "2026-04-10T09:18:00-03:00"},
-    {"id": "bet-005", "user_id": "ana-silva", "match_id": "match-005", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-10T09:19:00-03:00"},
-    {"id": "bet-006", "user_id": "bruno-costa", "match_id": "match-001", "predicted_home_score": 1, "predicted_away_score": 0, "created_at": "2026-04-10T09:25:00-03:00"},
-    {"id": "bet-007", "user_id": "bruno-costa", "match_id": "match-002", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-10T09:26:00-03:00"},
-    {"id": "bet-008", "user_id": "bruno-costa", "match_id": "match-003", "predicted_home_score": 0, "predicted_away_score": 2, "created_at": "2026-04-10T09:27:00-03:00"},
-    {"id": "bet-009", "user_id": "bruno-costa", "match_id": "match-004", "predicted_home_score": 2, "predicted_away_score": 0, "created_at": "2026-04-10T09:28:00-03:00"},
-    {"id": "bet-010", "user_id": "bruno-costa", "match_id": "match-005", "predicted_home_score": 0, "predicted_away_score": 0, "created_at": "2026-04-10T09:29:00-03:00"},
-    {"id": "bet-011", "user_id": "carla-souza", "match_id": "match-001", "predicted_home_score": 2, "predicted_away_score": 1, "created_at": "2026-04-10T09:35:00-03:00"},
-    {"id": "bet-012", "user_id": "carla-souza", "match_id": "match-002", "predicted_home_score": 2, "predicted_away_score": 2, "created_at": "2026-04-10T09:36:00-03:00"},
-    {"id": "bet-013", "user_id": "carla-souza", "match_id": "match-003", "predicted_home_score": 1, "predicted_away_score": 2, "created_at": "2026-04-10T09:37:00-03:00"},
-    {"id": "bet-014", "user_id": "carla-souza", "match_id": "match-004", "predicted_home_score": 0, "predicted_away_score": 1, "created_at": "2026-04-10T09:38:00-03:00"},
-    {"id": "bet-015", "user_id": "carla-souza", "match_id": "match-005", "predicted_home_score": 0, "predicted_away_score": 0, "created_at": "2026-04-10T09:39:00-03:00"},
-    {"id": "bet-016", "user_id": "diego-lima", "match_id": "match-001", "predicted_home_score": 2, "predicted_away_score": 1, "created_at": "2026-04-10T09:45:00-03:00"},
-    {"id": "bet-017", "user_id": "diego-lima", "match_id": "match-002", "predicted_home_score": 0, "predicted_away_score": 1, "created_at": "2026-04-10T09:46:00-03:00"},
-    {"id": "bet-018", "user_id": "diego-lima", "match_id": "match-003", "predicted_home_score": 0, "predicted_away_score": 2, "created_at": "2026-04-10T09:47:00-03:00"},
-    {"id": "bet-019", "user_id": "diego-lima", "match_id": "match-004", "predicted_home_score": 1, "predicted_away_score": 0, "created_at": "2026-04-10T09:48:00-03:00"},
-    {"id": "bet-020", "user_id": "diego-lima", "match_id": "match-005", "predicted_home_score": 2, "predicted_away_score": 2, "created_at": "2026-04-10T09:49:00-03:00"},
-    {"id": "bet-021", "user_id": "elisa-almeida", "match_id": "match-001", "predicted_home_score": 0, "predicted_away_score": 1, "created_at": "2026-04-10T09:55:00-03:00"},
-    {"id": "bet-022", "user_id": "elisa-almeida", "match_id": "match-002", "predicted_home_score": 2, "predicted_away_score": 2, "created_at": "2026-04-10T09:56:00-03:00"},
-    {"id": "bet-023", "user_id": "elisa-almeida", "match_id": "match-003", "predicted_home_score": 0, "predicted_away_score": 2, "created_at": "2026-04-10T09:57:00-03:00"},
-    {"id": "bet-024", "user_id": "elisa-almeida", "match_id": "match-004", "predicted_home_score": 3, "predicted_away_score": 0, "created_at": "2026-04-10T09:58:00-03:00"},
-    {"id": "bet-025", "user_id": "elisa-almeida", "match_id": "match-005", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-10T09:59:00-03:00"},
-    {"id": "bet-026", "user_id": "felipe-rocha", "match_id": "match-001", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-10T10:05:00-03:00"},
-    {"id": "bet-027", "user_id": "felipe-rocha", "match_id": "match-002", "predicted_home_score": 1, "predicted_away_score": 0, "created_at": "2026-04-10T10:06:00-03:00"},
-    {"id": "bet-028", "user_id": "felipe-rocha", "match_id": "match-003", "predicted_home_score": 0, "predicted_away_score": 2, "created_at": "2026-04-10T10:07:00-03:00"},
-    {"id": "bet-029", "user_id": "felipe-rocha", "match_id": "match-004", "predicted_home_score": 2, "predicted_away_score": 0, "created_at": "2026-04-10T10:08:00-03:00"},
-    {"id": "bet-030", "user_id": "felipe-rocha", "match_id": "match-005", "predicted_home_score": 3, "predicted_away_score": 3, "created_at": "2026-04-10T10:09:00-03:00"},
-    {"id": "bet-031", "user_id": "ana-silva", "match_id": "match-006", "predicted_home_score": 2, "predicted_away_score": 1, "created_at": "2026-04-22T10:00:00-03:00"},
-    {"id": "bet-032", "user_id": "ana-silva", "match_id": "match-007", "predicted_home_score": 1, "predicted_away_score": 0, "created_at": "2026-04-22T10:05:00-03:00"},
-    {"id": "bet-033", "user_id": "bruno-costa", "match_id": "match-006", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-22T10:10:00-03:00"},
-    {"id": "bet-034", "user_id": "bruno-costa", "match_id": "match-008", "predicted_home_score": 2, "predicted_away_score": 0, "created_at": "2026-04-22T10:15:00-03:00"},
-    {"id": "bet-035", "user_id": "carla-souza", "match_id": "match-006", "predicted_home_score": 0, "predicted_away_score": 2, "created_at": "2026-04-22T10:20:00-03:00"},
-    {"id": "bet-036", "user_id": "carla-souza", "match_id": "match-009", "predicted_home_score": 1, "predicted_away_score": 1, "created_at": "2026-04-22T10:25:00-03:00"},
-    {"id": "bet-037", "user_id": "diego-lima", "match_id": "match-007", "predicted_home_score": 2, "predicted_away_score": 1, "created_at": "2026-04-22T10:30:00-03:00"},
-    {"id": "bet-038", "user_id": "diego-lima", "match_id": "match-009", "predicted_home_score": 0, "predicted_away_score": 1, "created_at": "2026-04-22T10:35:00-03:00"},
-    {"id": "bet-039", "user_id": "elisa-almeida", "match_id": "match-006", "predicted_home_score": 3, "predicted_away_score": 1, "created_at": "2026-04-22T10:40:00-03:00"},
-    {"id": "bet-040", "user_id": "elisa-almeida", "match_id": "match-008", "predicted_home_score": 1, "predicted_away_score": 0, "created_at": "2026-04-22T10:45:00-03:00"},
-]
 
 
 class LoginRequest(BaseModel):
@@ -340,18 +60,217 @@ def parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def get_match(match_id: str) -> dict[str, Any]:
-    for match in MATCHES:
-        if match["id"] == match_id:
-            return match
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partida nao encontrada.")
+def coerce_datetime(value: datetime | str) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(value)
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=SAO_PAULO_TZ)
+    return parsed.astimezone(SAO_PAULO_TZ)
+
+
+def db_datetime_to_iso(value: datetime | str) -> str:
+    return coerce_datetime(value).replace(microsecond=0).isoformat()
+
+
+def now_for_database() -> datetime:
+    return datetime.now(SAO_PAULO_TZ).replace(tzinfo=None, microsecond=0)
+
+
+def hash_password(password: str) -> str:
+    return sha256(password.encode("utf-8")).hexdigest()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return hash_password(password) == password_hash.lower()
+
+
+def resolve_phase(fase: str, grupo: str | None) -> str:
+    normalized_stage = fase.strip().lower()
+    normalized_group = (grupo or "").strip().lower()
+    if normalized_stage.startswith("grupo"):
+        return "group"
+    if normalized_group and normalized_group != "mata-mata" and len(normalized_group) <= 2:
+        return "group"
+    return "knockout"
+
+
+def normalize_user(row: dict[str, Any]) -> dict[str, Any]:
+    is_admin = bool(row["is_admin"])
+    return {
+        "id": str(row["id"]),
+        "name": row.get("name") or row["username"],
+        "username": row["username"],
+        "email": row.get("email") or "",
+        "password_hash": row["password_hash"],
+        "role": "admin" if is_admin else "user",
+        "department": row.get("department") or "",
+        "paid": bool(row["pagou"]),
+    }
+
+
+def normalize_match(row: dict[str, Any]) -> dict[str, Any]:
+    phase = resolve_phase(row["fase"], row.get("grupo"))
+    return {
+        "id": str(row["id"]),
+        "stage": row["fase"],
+        "group": row.get("grupo"),
+        "grupo": row.get("grupo"),
+        "phase": phase,
+        "phase_label": "Fase de Grupos" if phase == "group" else "Mata-Mata",
+        "home_team": row["time_a"],
+        "away_team": row["time_b"],
+        "kickoff_at": db_datetime_to_iso(row["data_hora"]),
+        "stadium": row.get("estadio") or "",
+        "status": "finished" if bool(row["finalizado"]) else "scheduled",
+        "home_score": row["placar_a"],
+        "away_score": row["placar_b"],
+    }
+
+
+def normalize_bet(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "user_id": str(row["user_id"]),
+        "match_id": str(row["match_id"]),
+        "predicted_home_score": row["palpite_a"],
+        "predicted_away_score": row["palpite_b"],
+        "created_at": db_datetime_to_iso(row["created_at"]),
+    }
+
+
+def fetch_user_row_by_login(normalized_username: str) -> dict[str, Any] | None:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {USER_COLUMNS}
+            FROM users
+            WHERE LOWER(username) = %s OR LOWER(email) = %s
+            LIMIT 1
+            """,
+            (normalized_username, normalized_username),
+        )
+        return cursor.fetchone()
+
+
+def fetch_user_by_login(normalized_username: str) -> dict[str, Any] | None:
+    row = fetch_user_row_by_login(normalized_username)
+    if row is None and normalized_username == "mariana.admin":
+        row = fetch_user_row_by_login("admin")
+    return None if row is None else normalize_user(row)
+
+
+def fetch_all_users() -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {USER_COLUMNS}
+            FROM users
+            ORDER BY is_admin DESC, name
+            """
+        )
+        return [normalize_user(row) for row in cursor.fetchall()]
 
 
 def get_user(user_id: str) -> dict[str, Any]:
-    for user in USERS:
-        if user["id"] == user_id:
-            return user
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario nao encontrado.")
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {USER_COLUMNS}
+            FROM users
+            WHERE id = %s
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario nao encontrado.")
+    return normalize_user(row)
+
+
+def fetch_all_matches() -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {MATCH_COLUMNS}
+            FROM matches
+            ORDER BY data_hora, id
+            """
+        )
+        return [normalize_match(row) for row in cursor.fetchall()]
+
+
+def get_match(match_id: str) -> dict[str, Any]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {MATCH_COLUMNS}
+            FROM matches
+            WHERE id = %s
+            """,
+            (match_id,),
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Partida nao encontrada.")
+    return normalize_match(row)
+
+
+def fetch_all_bets() -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {BET_COLUMNS}
+            FROM bets
+            ORDER BY created_at, id
+            """
+        )
+        return [normalize_bet(row) for row in cursor.fetchall()]
+
+
+def fetch_bets_by_user(user_id: str) -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {BET_COLUMNS}
+            FROM bets
+            WHERE user_id = %s
+            ORDER BY created_at, id
+            """,
+            (user_id,),
+        )
+        return [normalize_bet(row) for row in cursor.fetchall()]
+
+
+def fetch_existing_bet(user_id: str, match_id: str) -> dict[str, Any] | None:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {BET_COLUMNS}
+            FROM bets
+            WHERE user_id = %s AND match_id = %s
+            LIMIT 1
+            """,
+            (user_id, match_id),
+        )
+        row = cursor.fetchone()
+    return None if row is None else normalize_bet(row)
+
+
+def next_bet_id(cursor: Any) -> str:
+    cursor.execute(
+        """
+        SELECT COALESCE(MAX(CAST(SUBSTRING(id, 5) AS UNSIGNED)), 0) + 1 AS next_number
+        FROM bets
+        WHERE id REGEXP '^bet-[0-9]+$'
+        """
+    )
+    row = cursor.fetchone()
+    return f'bet-{int(row["next_number"]):03d}'
 
 
 def serialize_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -398,8 +317,9 @@ def is_knockout_match(match: dict[str, Any]) -> bool:
     return match.get("phase") == "knockout"
 
 
-def is_group_stage_complete() -> bool:
-    group_matches = [match for match in MATCHES if is_group_stage_match(match)]
+def is_group_stage_complete(matches: list[dict[str, Any]] | None = None) -> bool:
+    loaded_matches = fetch_all_matches() if matches is None else matches
+    group_matches = [match for match in loaded_matches if is_group_stage_match(match)]
     return bool(group_matches) and all(is_match_finished(match) for match in group_matches)
 
 
@@ -412,16 +332,28 @@ def is_match_upcoming(match: dict[str, Any], reference_time: datetime | None = N
     return match["status"] == "scheduled" and parse_datetime(match["kickoff_at"]) > now
 
 
-def is_match_open_for_bet(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
-    if is_knockout_match(match) and not is_group_stage_complete():
+def is_match_open_for_bet(
+    match: dict[str, Any],
+    reference_time: datetime | None = None,
+    group_stage_complete: bool | None = None,
+) -> bool:
+    if is_knockout_match(match) and not (
+        is_group_stage_complete() if group_stage_complete is None else group_stage_complete
+    ):
         return False
 
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
     return is_match_upcoming(match, now) and now < get_betting_closes_at(match)
 
 
-def get_betting_closed_reason(match: dict[str, Any], reference_time: datetime | None = None) -> str | None:
-    if is_knockout_match(match) and not is_group_stage_complete():
+def get_betting_closed_reason(
+    match: dict[str, Any],
+    reference_time: datetime | None = None,
+    group_stage_complete: bool | None = None,
+) -> str | None:
+    if is_knockout_match(match) and not (
+        is_group_stage_complete() if group_stage_complete is None else group_stage_complete
+    ):
         return "Aguardando definicao da Fase de Grupos."
 
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
@@ -446,13 +378,9 @@ def is_match_available_for_result_entry(match: dict[str, Any], reference_time: d
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     normalized_username = username.strip().lower()
-    for user in USERS:
-        login_candidates = {
-            user["username"].lower(),
-            user["email"].lower(),
-        }
-        if normalized_username in login_candidates and user["password"] == password:
-            return user
+    user = fetch_user_by_login(normalized_username)
+    if user is not None and verify_password(password, user["password_hash"]):
+        return user
     return None
 
 
@@ -506,8 +434,17 @@ def evaluate_bet(match: dict[str, Any], bet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_ranking() -> dict[str, Any]:
-    participants = [user for user in USERS if user["role"] == "user"]
+def build_ranking(
+    users: list[dict[str, Any]] | None = None,
+    matches: list[dict[str, Any]] | None = None,
+    bets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    loaded_users = fetch_all_users() if users is None else users
+    loaded_matches = fetch_all_matches() if matches is None else matches
+    loaded_bets = fetch_all_bets() if bets is None else bets
+    matches_by_id = {match["id"]: match for match in loaded_matches}
+
+    participants = [user for user in loaded_users if user["role"] == "user"]
     participant_map = {
         user["id"]: {
             "user_id": user["id"],
@@ -525,17 +462,16 @@ def build_ranking() -> dict[str, Any]:
     }
 
     detailed_bets: list[dict[str, Any]] = []
-    finished_matches = 0
+    finished_matches = sum(1 for match in loaded_matches if is_match_finished(match))
 
-    for match in MATCHES:
-        if is_match_finished(match):
-            finished_matches += 1
-
-    for bet in BETS:
+    for bet in loaded_bets:
         if bet["user_id"] not in participant_map:
             continue
 
-        match = get_match(bet["match_id"])
+        match = matches_by_id.get(bet["match_id"])
+        if match is None:
+            continue
+
         evaluation = evaluate_bet(match, bet)
         participant = participant_map[bet["user_id"]]
 
@@ -599,13 +535,13 @@ def build_ranking() -> dict[str, Any]:
         )
 
     return {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
         "ranking": ranking,
         "bets": detailed_bets,
         "summary": {
             "finished_matches": finished_matches,
-            "scheduled_matches": len(MATCHES) - finished_matches,
-            "total_bets": len(BETS),
+            "scheduled_matches": len(loaded_matches) - finished_matches,
+            "total_bets": len(loaded_bets),
             "participants": len(participants),
         },
         "prize_pool": {
@@ -617,7 +553,7 @@ def build_ranking() -> dict[str, Any]:
     }
 
 
-def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
+def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = None) -> dict[str, Any]:
     betting_closes_at = get_betting_closes_at(match)
     return {
         "id": match["id"],
@@ -635,23 +571,31 @@ def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
         "status": match["status"],
         "home_score": match["home_score"],
         "away_score": match["away_score"],
-        "betting_open": is_match_open_for_bet(match),
-        "betting_closed_reason": get_betting_closed_reason(match),
+        "betting_open": is_match_open_for_bet(match, group_stage_complete=group_stage_complete),
+        "betting_closed_reason": get_betting_closed_reason(match, group_stage_complete=group_stage_complete),
         "has_result": is_match_finished(match),
         "result_entry_allowed": is_match_available_for_result_entry(match),
     }
 
 
 def build_admin_dashboard_payload() -> dict[str, Any]:
-    ranking_data = build_ranking()
+    users = fetch_all_users()
+    matches = fetch_all_matches()
+    bets = fetch_all_bets()
+    group_stage_complete = is_group_stage_complete(matches)
+    ranking_data = build_ranking(users=users, matches=matches, bets=bets)
+
     return {
         **ranking_data,
         "metadata": {
-            "group_stage_complete": is_group_stage_complete(),
+            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
-        "users": [serialize_user(user) for user in USERS if user["role"] == "user"],
-        "matches": [serialize_match(match) for match in sorted(MATCHES, key=lambda item: parse_datetime(item["kickoff_at"]))],
+        "users": [serialize_user(user) for user in users if user["role"] == "user"],
+        "matches": [
+            serialize_match(match, group_stage_complete=group_stage_complete)
+            for match in sorted(matches, key=lambda item: parse_datetime(item["kickoff_at"]))
+        ],
     }
 
 
@@ -676,8 +620,8 @@ def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> d
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
-        "message": "Bolao Copa OST API em memoria.",
-        "frontend_hint": "O frontend autentica via /login e usa o id do usuario em memoria nas chamadas protegidas.",
+        "message": "Bolao Copa OST API com persistencia em MySQL.",
+        "frontend_hint": "O frontend autentica via /login e usa o id do usuario nas chamadas protegidas.",
         "available_routes": [
             "/login",
             "/me/bets-overview",
@@ -705,16 +649,19 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
             detail="A tela de palpites e exclusiva para usuarios comuns.",
         )
 
-    user_bets = [bet for bet in BETS if bet["user_id"] == current_user["id"]]
+    matches = fetch_all_matches()
+    matches_by_id = {match["id"]: match for match in matches}
+    group_stage_complete = is_group_stage_complete(matches)
+    user_bets = fetch_bets_by_user(current_user["id"])
     bets_by_match = {bet["match_id"]: bet for bet in user_bets}
     upcoming_matches = []
 
-    for match in MATCHES:
+    for match in matches:
         existing_bet = bets_by_match.get(match["id"])
         if not is_match_upcoming(match):
             continue
 
-        match_payload = serialize_match(match)
+        match_payload = serialize_match(match, group_stage_complete=group_stage_complete)
         match_payload["existing_bet"] = None if existing_bet is None else {
             "bet_id": existing_bet["id"],
             "predicted_home_score": existing_bet["predicted_home_score"],
@@ -724,8 +671,18 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
         upcoming_matches.append(match_payload)
 
     submitted_bets = []
-    for bet in sorted(user_bets, key=lambda item: parse_datetime(get_match(item["match_id"])["kickoff_at"])):
-        match = get_match(bet["match_id"])
+    sorted_user_bets = sorted(
+        user_bets,
+        key=lambda item: parse_datetime(matches_by_id[item["match_id"]]["kickoff_at"])
+        if item["match_id"] in matches_by_id
+        else datetime.max.replace(tzinfo=SAO_PAULO_TZ),
+    )
+
+    for bet in sorted_user_bets:
+        match = matches_by_id.get(bet["match_id"])
+        if match is None:
+            continue
+
         submitted_bets.append(
             {
                 "bet_id": bet["id"],
@@ -733,7 +690,7 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
                 "predicted_home_score": bet["predicted_home_score"],
                 "predicted_away_score": bet["predicted_away_score"],
                 "match": {
-                    **serialize_match(match),
+                    **serialize_match(match, group_stage_complete=group_stage_complete),
                 },
             }
         )
@@ -741,13 +698,15 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
     return {
         "user": serialize_user(current_user),
         "metadata": {
-            "group_stage_complete": is_group_stage_complete(),
+            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
         "summary": {
             "upcoming_matches": len(upcoming_matches),
             "registered_upcoming_bets": sum(1 for match in upcoming_matches if match["existing_bet"] is not None),
-            "open_matches_without_bet": sum(1 for match in upcoming_matches if match["existing_bet"] is None and match["betting_open"]),
+            "open_matches_without_bet": sum(
+                1 for match in upcoming_matches if match["existing_bet"] is None and match["betting_open"]
+            ),
         },
         "upcoming_matches": upcoming_matches,
         "submitted_bets": submitted_bets,
@@ -770,35 +729,49 @@ def create_bet(
             detail=betting_closed_reason,
         )
 
-    existing_bet = next(
-        (bet for bet in BETS if bet["user_id"] == current_user["id"] and bet["match_id"] == payload.match_id),
-        None,
-    )
+    existing_bet = fetch_existing_bet(current_user["id"], payload.match_id)
     if existing_bet:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Palpite ja registrado. O MVP nao permite edicao apos salvar.",
         )
 
+    created_at = now_for_database()
+
+    try:
+        with db_cursor(commit=True) as cursor:
+            new_bet_id = next_bet_id(cursor)
+            cursor.execute(
+                """
+                INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    new_bet_id,
+                    current_user["id"],
+                    payload.match_id,
+                    payload.predicted_home_score,
+                    payload.predicted_away_score,
+                    created_at,
+                ),
+            )
+    except IntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Palpite ja registrado. O MVP nao permite edicao apos salvar.",
+        ) from error
+
     new_bet = {
-        "id": f'bet-{len(BETS) + 1:03d}',
-        "user_id": current_user["id"],
+        "id": new_bet_id,
         "match_id": payload.match_id,
         "predicted_home_score": payload.predicted_home_score,
         "predicted_away_score": payload.predicted_away_score,
-        "created_at": datetime.now(parse_datetime(match["kickoff_at"]).tzinfo).isoformat(),
+        "created_at": db_datetime_to_iso(created_at),
     }
-    BETS.append(new_bet)
 
     return {
         "message": "Palpite salvo com sucesso.",
-        "bet": {
-            "id": new_bet["id"],
-            "match_id": new_bet["match_id"],
-            "predicted_home_score": new_bet["predicted_home_score"],
-            "predicted_away_score": new_bet["predicted_away_score"],
-            "created_at": new_bet["created_at"],
-        },
+        "bet": new_bet,
     }
 
 
@@ -817,10 +790,21 @@ def update_payment_status(
     if user["role"] != "user":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pagamento so pode ser alterado para participantes.")
 
-    user["paid"] = (not user["paid"]) if payload.paid is None else payload.paid
+    new_paid = (not user["paid"]) if payload.paid is None else payload.paid
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE users
+            SET pagou = %s
+            WHERE id = %s
+            """,
+            (new_paid, user_id),
+        )
+
+    updated_user = get_user(user_id)
     return {
         "message": "Status de pagamento atualizado.",
-        "user": serialize_user(user),
+        "user": serialize_user(updated_user),
         "dashboard": build_admin_dashboard_payload(),
     }
 
@@ -838,12 +822,21 @@ def update_match_result(
             detail="O placar real so pode ser informado para partidas que ja chegaram ao horario do jogo.",
         )
 
-    match["home_score"] = payload.home_score
-    match["away_score"] = payload.away_score
-    match["status"] = "finished"
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE matches
+            SET placar_a = %s,
+                placar_b = %s,
+                finalizado = 1
+            WHERE id = %s
+            """,
+            (payload.home_score, payload.away_score, match_id),
+        )
 
+    updated_match = get_match(match_id)
     return {
         "message": "Placar real salvo com sucesso. Ranking recalculado.",
-        "match": serialize_match(match),
+        "match": serialize_match(updated_match),
         "dashboard": build_admin_dashboard_payload(),
     }
