@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import unicodedata
+from datetime import date as Date, datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymysql.err import IntegrityError
 
 from .db import db_cursor
+from .services.api_football import ApiFootballClient, ApiFootballError, FinishedMatchResult
 
 BET_PRICE = 100
 PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
@@ -56,6 +58,10 @@ class MatchResultUpdateRequest(BaseModel):
     away_score: int = Field(ge=0, le=20)
 
 
+class SyncMatchesRequest(BaseModel):
+    date: Date | None = None
+
+
 def parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
@@ -85,6 +91,12 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     return hash_password(password) == password_hash.lower()
+
+
+def normalize_team_lookup(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = "".join(character for character in normalized if not unicodedata.combining(character))
+    return " ".join(ascii_value.casefold().split())
 
 
 def resolve_phase(fase: str, grupo: str | None) -> str:
@@ -599,6 +611,67 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
     }
 
 
+def apply_synced_match_results(results: list[FinishedMatchResult]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    matches = fetch_all_matches()
+    match_index = {
+        (normalize_team_lookup(match["home_team"]), normalize_team_lookup(match["away_team"])): match
+        for match in matches
+    }
+    updated_matches: list[dict[str, Any]] = []
+    skipped_matches: list[dict[str, Any]] = []
+
+    if not results:
+        return updated_matches, skipped_matches
+
+    with db_cursor(commit=True) as cursor:
+        for result in results:
+            direct_key = (normalize_team_lookup(result.home_team), normalize_team_lookup(result.away_team))
+            reverse_key = (normalize_team_lookup(result.away_team), normalize_team_lookup(result.home_team))
+
+            match = match_index.get(direct_key)
+            if match is not None:
+                home_score = result.home_score
+                away_score = result.away_score
+            else:
+                match = match_index.get(reverse_key)
+                if match is None:
+                    skipped_matches.append(
+                        {
+                            "api_fixture_id": result.api_fixture_id,
+                            "home_team": result.home_team,
+                            "away_team": result.away_team,
+                            "reason": "Partida nao encontrada na tabela matches.",
+                        }
+                    )
+                    continue
+                home_score = result.away_score
+                away_score = result.home_score
+
+            cursor.execute(
+                """
+                UPDATE matches
+                SET placar_a = %s,
+                    placar_b = %s,
+                    finalizado = 1
+                WHERE id = %s
+                """,
+                (home_score, away_score, match["id"]),
+            )
+            updated_matches.append(
+                {
+                    "match_id": match["id"],
+                    "match_label": match_label(match),
+                    "api_fixture_id": result.api_fixture_id,
+                    "home_score": home_score,
+                    "away_score": away_score,
+                    "status": result.status,
+                    "played_at": result.played_at,
+                }
+            )
+
+    return updated_matches, skipped_matches
+
+
 def get_current_user(x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     if not x_user_id:
         raise HTTPException(
@@ -627,6 +700,7 @@ def root() -> dict[str, Any]:
             "/me/bets-overview",
             "/me/bets",
             "/admin/dashboard",
+            "/admin/sync-matches",
             "/admin/matches/{match_id}/result",
             "/admin/users/{user_id}/payment",
         ],
@@ -778,6 +852,47 @@ def create_bet(
 @app.get("/admin/dashboard")
 def get_admin_dashboard(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     return build_admin_dashboard_payload()
+
+
+@app.post("/admin/sync-matches")
+def sync_matches(
+    payload: SyncMatchesRequest | None = Body(default=None),
+    _: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    sync_date = payload.date if payload and payload.date is not None else datetime.now(SAO_PAULO_TZ).date()
+    sync_source = "api-football"
+    api_error_detail = None
+    client = ApiFootballClient()
+
+    try:
+        api_results = client.get_finished_matches_by_date(sync_date)
+    except ApiFootballError as error:
+        fallback_results = client.get_local_finished_matches_by_date(sync_date)
+        if not client.should_use_local_fallback() or not fallback_results:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)) from error
+
+        api_results = fallback_results
+        sync_source = "local-2022-fallback"
+        api_error_detail = str(error)
+
+    try:
+        updated_matches, skipped_matches = apply_synced_match_results(api_results)
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Nao foi possivel atualizar as partidas no banco de dados.",
+        ) from error
+
+    return {
+        "message": "Sincronizacao concluida. Ranking recalculado.",
+        "sync_date": sync_date.isoformat(),
+        "sync_source": sync_source,
+        "api_error": api_error_detail,
+        "api_finished_matches": len(api_results),
+        "updated_matches": updated_matches,
+        "skipped_matches": skipped_matches,
+        "dashboard": build_admin_dashboard_payload(),
+    }
 
 
 @app.post("/admin/users/{user_id}/payment")
