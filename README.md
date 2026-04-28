@@ -5,7 +5,7 @@ MVP web do Bolao da Copa para a OST. O sistema usa React no frontend, FastAPI no
 ## Stack
 
 - `frontend/`: React + Vite + Tailwind CSS
-- `backend/`: Python + FastAPI
+- `backend/`: Python + FastAPI + JWT + bcrypt
 - `database/`: scripts SQL de schema e seed para MySQL
 - Integracao opcional: API-Football para sincronizar resultados de partidas
 
@@ -14,6 +14,7 @@ MVP web do Bolao da Copa para a OST. O sistema usa React no frontend, FastAPI no
 - Python 3.11+
 - Node.js 20+
 - MySQL 8+
+- Chave JWT configurada no `.env`
 
 ## Configuracao
 
@@ -27,9 +28,11 @@ DB_PASSWORD=
 DB_NAME=bolao_copa
 API_FOOTBALL_KEY=
 API_FOOTBALL_USE_LOCAL_FALLBACK=true
+JWT_SECRET_KEY=change-me-in-development
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
 ```
 
-`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Com `API_FOOTBALL_USE_LOCAL_FALLBACK=true`, o backend usa resultados locais de teste quando a API externa nao estiver configurada.
+`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Com `API_FOOTBALL_USE_LOCAL_FALLBACK=true`, o backend usa resultados locais de teste quando a API externa nao estiver configurada. Troque `JWT_SECRET_KEY` por um valor forte no seu `.env` real.
 
 ## Banco De Dados
 
@@ -41,6 +44,12 @@ CREATE DATABASE IF NOT EXISTS bolao_copa
   COLLATE utf8mb4_unicode_ci;
 ```
 
+Se o banco ja existia antes da migracao para JWT/bcrypt, ajuste o tamanho do campo de senha uma vez:
+
+```powershell
+mysql -u root -p bolao_copa -e "ALTER TABLE users MODIFY password_hash VARCHAR(255) NOT NULL;"
+```
+
 Depois execute os scripts:
 
 ```powershell
@@ -48,7 +57,7 @@ mysql -u root -p bolao_copa -e "source backend/database/schema.sql"
 mysql -u root -p bolao_copa -e "source backend/database/seed.sql"
 ```
 
-Observacao: o `seed.sql` usa `ON DUPLICATE KEY UPDATE`. Rodar o seed novamente atualiza usuarios, partidas, palpites, pagamentos e resultados para os valores do arquivo.
+Observacao: o `seed.sql` usa `ON DUPLICATE KEY UPDATE`. Rodar o seed novamente atualiza usuarios, partidas, palpites, pagamentos e resultados para os valores do arquivo. Depois da migracao para JWT/bcrypt, rode o seed novamente para substituir os hashes SHA-256 antigos por hashes bcrypt.
 
 ## Como Rodar
 
@@ -82,7 +91,7 @@ Frontend local:
 
 ## Usuarios De Teste
 
-- Admin: `admin` ou `admin@ost.com.br` / `admin123`
+- Admin: `admin` ou `admin@ost.com.br` / `123456`
 - Usuarios: `ana.silva`, `bruno.costa`, `carla.souza`, `diego.lima`, `elisa.almeida`, `felipe.rocha`
 - Senha padrao dos usuarios: `123456`
 

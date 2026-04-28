@@ -24,8 +24,8 @@ export function AppShell({ sessionUser, onLogout, children }) {
               <span className="data-pill">MVP sem banco real</span>
             </div>
             <p className="subtle-copy mt-3 max-w-xl">
-              Fluxo em memoria para validar a experiencia do participante, ranking do admin
-              e as regras matematicas do bolao antes da camada persistente.
+              Fluxo com MySQL e JWT para validar a experiencia do participante, ranking do admin
+              e as regras matematicas do bolao com persistencia real.
             </p>
           </div>
 

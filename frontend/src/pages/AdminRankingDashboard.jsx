@@ -41,7 +41,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   }
 
   async function refreshDashboard() {
-    const payload = await getAdminDashboard(sessionUser.id);
+    const payload = await getAdminDashboard(sessionUser.accessToken);
     syncDashboard(payload);
     return payload;
   }
@@ -54,7 +54,7 @@ export function AdminRankingDashboard({ sessionUser }) {
       setError("");
 
       try {
-        const payload = await getAdminDashboard(sessionUser.id);
+        const payload = await getAdminDashboard(sessionUser.accessToken);
         if (active) {
           syncDashboard(payload);
         }
@@ -74,7 +74,7 @@ export function AdminRankingDashboard({ sessionUser }) {
     return () => {
       active = false;
     };
-  }, [sessionUser.id]);
+  }, [sessionUser.accessToken]);
 
   async function handlePaymentToggle(user) {
     setBusyUserId(user.id);
@@ -82,7 +82,7 @@ export function AdminRankingDashboard({ sessionUser }) {
     setNotice("");
 
     try {
-      const response = await updatePaymentStatus(sessionUser.id, user.id, !user.paid);
+      const response = await updatePaymentStatus(sessionUser.accessToken, user.id, !user.paid);
       await refreshDashboard();
       setNotice(response.message);
     } catch (requestError) {
@@ -119,7 +119,7 @@ export function AdminRankingDashboard({ sessionUser }) {
     setNotice("");
 
     try {
-      const response = await updateMatchResult(sessionUser.id, matchId, {
+      const response = await updateMatchResult(sessionUser.accessToken, matchId, {
         home_score: homeScore,
         away_score: awayScore,
       });
@@ -178,7 +178,7 @@ export function AdminRankingDashboard({ sessionUser }) {
         <StatCard
           label="Palpites"
           value={dashboard.summary.total_bets}
-          caption="Todos os palpites registrados em memoria, finalizados e futuros."
+          caption="Todos os palpites registrados no banco, finalizados e futuros."
           tone="success"
         />
         <StatCard
