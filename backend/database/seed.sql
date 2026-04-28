@@ -1,12 +1,12 @@
 INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou)
 VALUES
-    ('admin-ost', 'Mariana Admin', 'admin', 'admin@ost.com.br', SHA2('admin123', 256), 1, 'Operacoes', 0),
-    ('ana-silva', 'Ana Silva', 'ana.silva', 'ana@ost.com.br', SHA2('123456', 256), 0, 'Financeiro', 1),
-    ('bruno-costa', 'Bruno Costa', 'bruno.costa', 'bruno@ost.com.br', SHA2('123456', 256), 0, 'Comercial', 1),
-    ('carla-souza', 'Carla Souza', 'carla.souza', 'carla@ost.com.br', SHA2('123456', 256), 0, 'RH', 0),
-    ('diego-lima', 'Diego Lima', 'diego.lima', 'diego@ost.com.br', SHA2('123456', 256), 0, 'Tecnologia', 1),
-    ('elisa-almeida', 'Elisa Almeida', 'elisa.almeida', 'elisa@ost.com.br', SHA2('123456', 256), 0, 'Marketing', 1),
-    ('felipe-rocha', 'Felipe Rocha', 'felipe.rocha', 'felipe@ost.com.br', SHA2('123456', 256), 0, 'Juridico', 0)
+    ('admin-ost', 'Mariana Admin', 'admin', 'admin@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 1, 'Operacoes', 0),
+    ('ana-silva', 'Ana Silva', 'ana.silva', 'ana@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'Financeiro', 1),
+    ('bruno-costa', 'Bruno Costa', 'bruno.costa', 'bruno@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'Comercial', 1),
+    ('carla-souza', 'Carla Souza', 'carla.souza', 'carla@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'RH', 0),
+    ('diego-lima', 'Diego Lima', 'diego.lima', 'diego@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'Tecnologia', 1),
+    ('elisa-almeida', 'Elisa Almeida', 'elisa.almeida', 'elisa@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'Marketing', 1),
+    ('felipe-rocha', 'Felipe Rocha', 'felipe.rocha', 'felipe@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 0, 'Juridico', 0)
 ON DUPLICATE KEY UPDATE
     name = VALUES(name),
     username = VALUES(username),

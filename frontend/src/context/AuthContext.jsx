@@ -1,12 +1,13 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 import { loginUser } from "../services/api";
 
 const AUTH_STORAGE_KEY = "bolao-copa-ost.auth";
+const AUTH_EXPIRED_EVENT = "bolao-auth-expired";
 const AuthContext = createContext(null);
 
-function normalizeUser(rawUser) {
-  if (!rawUser) {
+function normalizeUser(rawUser, accessToken) {
+  if (!rawUser || !accessToken) {
     return null;
   }
 
@@ -24,6 +25,7 @@ function normalizeUser(rawUser) {
     paid,
     pagou: paid,
     is_admin: Boolean(rawUser.is_admin ?? role === "admin"),
+    accessToken,
   };
 }
 
@@ -34,7 +36,16 @@ function getStoredUser() {
       return null;
     }
 
-    return normalizeUser(JSON.parse(rawValue));
+    const storedSession = JSON.parse(rawValue);
+    const accessToken = storedSession.accessToken ?? storedSession.token ?? storedSession.access_token;
+    const rawUser = storedSession.user ?? storedSession;
+    const normalizedUser = normalizeUser(rawUser, accessToken);
+
+    if (!normalizedUser) {
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+
+    return normalizedUser;
   } catch {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
@@ -43,27 +54,48 @@ function getStoredUser() {
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(getStoredUser);
+  const [sessionNotice, setSessionNotice] = useState("");
 
   async function login(credentials) {
     const payload = await loginUser(credentials);
-    const normalizedUser = normalizeUser(payload.user);
+    const accessToken = payload.access_token;
+    const normalizedUser = normalizeUser(payload.user, accessToken);
 
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(normalizedUser));
+    if (!normalizedUser) {
+      throw new Error("Resposta de autenticacao invalida.");
+    }
+
+    window.localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({ user: normalizedUser, accessToken }),
+    );
     setCurrentUser(normalizedUser);
+    setSessionNotice("");
 
     return normalizedUser;
   }
 
-  function logout() {
+  function logout(reason = "") {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
     setCurrentUser(null);
+    setSessionNotice(typeof reason === "string" ? reason : "");
   }
+
+  useEffect(() => {
+    function handleAuthExpired() {
+      logout("Sua sessao expirou. Entre novamente para continuar.");
+    }
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  }, []);
 
   return (
     <AuthContext.Provider
       value={{
         currentUser,
         isAuthenticated: Boolean(currentUser),
+        sessionNotice,
         login,
         logout,
       }}

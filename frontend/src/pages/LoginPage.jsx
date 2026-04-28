@@ -6,8 +6,8 @@ import { useAuth } from "../context/AuthContext";
 const demoCredentials = [
   {
     label: "Admin",
-    username: "mariana.admin",
-    password: "admin123",
+    username: "admin",
+    password: "123456",
     description: "Acesso total ao ranking, palpites, pagamentos e resultados.",
   },
   {
@@ -20,7 +20,7 @@ const demoCredentials = [
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, sessionNotice } = useAuth();
   const [form, setForm] = useState({
     username: "",
     password: "",
@@ -56,7 +56,7 @@ export function LoginPage() {
             <p className="eyebrow">OST World Cup Pool</p>
             <h1 className="headline mt-4">Login do Bolao Copa 2026</h1>
             <p className="subtle-copy mt-4 max-w-lg">
-              Entre com seu usuario mockado para acessar a visao correta do sistema.
+              Entre com seu usuario e senha para receber um token seguro de acesso.
               Participantes visualizam apenas seus palpites. Admins controlam ranking,
               pagamentos e resultados.
             </p>
@@ -96,9 +96,9 @@ export function LoginPage() {
                 />
               </div>
 
-              {error ? (
+              {error || sessionNotice ? (
                 <div className="rounded-3xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
-                  {error}
+                  {error || sessionNotice}
                 </div>
               ) : null}
 
@@ -111,11 +111,10 @@ export function LoginPage() {
           <section className="panel-strong px-6 py-8 sm:px-8 sm:py-10">
             <p className="eyebrow">Acesso de teste</p>
             <h2 className="mt-4 font-display text-3xl font-semibold text-ink">
-              Credenciais mockadas
+              Credenciais de teste
             </h2>
             <p className="subtle-copy mt-4">
-              Este MVP continua 100% em memoria. O login autentica contra a lista mockada
-              do backend e persiste a sessao apenas no navegador.
+              O login valida o hash bcrypt salvo no MySQL e guarda apenas o token JWT da sessao no navegador.
             </p>
 
             <div className="mt-8 space-y-4">

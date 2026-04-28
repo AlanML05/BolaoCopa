@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unicodedata
 from datetime import date as Date, datetime, timedelta, timezone
-from hashlib import sha256
 from typing import Any, Literal
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
@@ -11,6 +10,7 @@ from pydantic import BaseModel, Field
 from pymysql.err import IntegrityError
 
 from .db import db_cursor
+from .security import create_access_token, decode_access_token, verify_password
 from .services.api_football import ApiFootballClient, ApiFootballError, FinishedMatchResult
 
 BET_PRICE = 100
@@ -85,12 +85,6 @@ def now_for_database() -> datetime:
     return datetime.now(SAO_PAULO_TZ).replace(tzinfo=None, microsecond=0)
 
 
-def hash_password(password: str) -> str:
-    return sha256(password.encode("utf-8")).hexdigest()
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    return hash_password(password) == password_hash.lower()
 
 
 def normalize_team_lookup(value: str) -> str:
@@ -672,13 +666,35 @@ def apply_synced_match_results(results: list[FinishedMatchResult]) -> tuple[list
     return updated_matches, skipped_matches
 
 
-def get_current_user(x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
-    if not x_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Cabecalho X-User-Id obrigatorio.",
-        )
-    return get_user(x_user_id)
+def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Sessao expirada ou token invalido.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if not authorization:
+        raise credentials_exception
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise credentials_exception
+
+    try:
+        payload = decode_access_token(token)
+    except ValueError as error:
+        raise credentials_exception from error
+
+    user_id = payload.get("sub")
+    if not isinstance(user_id, str) or not user_id:
+        raise credentials_exception
+
+    try:
+        return get_user(user_id)
+    except HTTPException as error:
+        if error.status_code == status.HTTP_404_NOT_FOUND:
+            raise credentials_exception from error
+        raise
 
 
 def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -694,7 +710,7 @@ def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> d
 def root() -> dict[str, Any]:
     return {
         "message": "Bolao Copa OST API com persistencia em MySQL.",
-        "frontend_hint": "O frontend autentica via /login e usa o id do usuario nas chamadas protegidas.",
+        "frontend_hint": "O frontend autentica via /login e envia Authorization: Bearer <token> nas rotas protegidas.",
         "available_routes": [
             "/login",
             "/me/bets-overview",
@@ -711,7 +727,12 @@ def root() -> dict[str, Any]:
 def login(payload: LoginRequest) -> dict[str, Any]:
     user = authenticate_user(payload.username, payload.password)
     if user is not None:
-        return {"user": serialize_authenticated_user(user)}
+        access_token = create_access_token(user["id"], {"role": user["role"]})
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": serialize_authenticated_user(user),
+        }
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas.")
 
 

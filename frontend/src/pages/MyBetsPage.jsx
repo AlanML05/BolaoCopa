@@ -84,7 +84,7 @@ export function MyBetsPage({ sessionUser }) {
       setError("");
 
       try {
-        const payload = await getMyBetsOverview(sessionUser.id);
+        const payload = await getMyBetsOverview(sessionUser.accessToken);
         if (!active) {
           return;
         }
@@ -114,7 +114,7 @@ export function MyBetsPage({ sessionUser }) {
     return () => {
       active = false;
     };
-  }, [sessionUser.id]);
+  }, [sessionUser.accessToken]);
 
   function handleFieldChange(matchId, field, value) {
     setForms((current) => ({
@@ -142,12 +142,12 @@ export function MyBetsPage({ sessionUser }) {
     setError("");
 
     try {
-      const response = await createBet(sessionUser.id, {
+      const response = await createBet(sessionUser.accessToken, {
         match_id: matchId,
         predicted_home_score: homeScore,
         predicted_away_score: awayScore,
       });
-      const refreshed = await getMyBetsOverview(sessionUser.id);
+      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
       setForms(createDefaultForms(refreshed.upcoming_matches));
       setActiveTab((current) => {
@@ -316,7 +316,7 @@ export function MyBetsPage({ sessionUser }) {
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida nesta aba.</p>
             <p className="mt-2 text-sm text-muted">
-              Quando novas partidas forem mockadas para esta fase, elas aparecerao aqui.
+              Quando novas partidas forem cadastradas para esta fase, elas aparecerao aqui.
             </p>
           </section>
         )}

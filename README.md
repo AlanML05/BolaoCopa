@@ -1,45 +1,124 @@
 # Bolao Copa do Mundo
 
-Estrutura inicial do MVP do bolao da Copa do Mundo de 2026 para a OST.
+MVP web do Bolao da Copa para a OST. O sistema usa React no frontend, FastAPI no backend e MySQL como persistencia oficial.
 
 ## Stack
 
-- `backend/`: FastAPI com dados mockados em memoria
-- `frontend/`: React + Tailwind CSS
+- `frontend/`: React + Vite + Tailwind CSS
+- `backend/`: Python + FastAPI + JWT + bcrypt
+- `database/`: scripts SQL de schema e seed para MySQL
+- Integracao opcional: API-Football para sincronizar resultados de partidas
 
-## Como rodar
+## Requisitos
+
+- Python 3.11+
+- Node.js 20+
+- MySQL 8+
+- Chave JWT configurada no `.env`
+
+## Configuracao
+
+Crie um arquivo `.env` na raiz do projeto usando `.env.example` como base:
+
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=bolao_copa
+API_FOOTBALL_KEY=
+API_FOOTBALL_USE_LOCAL_FALLBACK=true
+JWT_SECRET_KEY=change-me-in-development
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
+```
+
+`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Com `API_FOOTBALL_USE_LOCAL_FALLBACK=true`, o backend usa resultados locais de teste quando a API externa nao estiver configurada. Troque `JWT_SECRET_KEY` por um valor forte no seu `.env` real.
+
+## Banco De Dados
+
+Crie o banco e carregue a estrutura:
+
+```sql
+CREATE DATABASE IF NOT EXISTS bolao_copa
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+Se o banco ja existia antes da migracao para JWT/bcrypt, ajuste o tamanho do campo de senha uma vez:
+
+```powershell
+mysql -u root -p bolao_copa -e "ALTER TABLE users MODIFY password_hash VARCHAR(255) NOT NULL;"
+```
+
+Depois execute os scripts:
+
+```powershell
+mysql -u root -p bolao_copa -e "source backend/database/schema.sql"
+mysql -u root -p bolao_copa -e "source backend/database/seed.sql"
+```
+
+Observacao: o `seed.sql` usa `ON DUPLICATE KEY UPDATE`. Rodar o seed novamente atualiza usuarios, partidas, palpites, pagamentos e resultados para os valores do arquivo. Depois da migracao para JWT/bcrypt, rode o seed novamente para substituir os hashes SHA-256 antigos por hashes bcrypt.
+
+## Como Rodar
 
 ### Backend
 
-```bash
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend/requirements.txt
-uvicorn backend.app.main:app --reload
+.\.venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+API local:
+
+- `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
 
 ### Frontend
 
-```bash
+Em outro terminal:
+
+```powershell
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
-## Usuarios mockados
+Frontend local:
 
-- Admin: `admin@ost.com.br` / `admin123`
-- Usuarios: `ana@ost.com.br`, `bruno@ost.com.br`, `carla@ost.com.br`, `diego@ost.com.br`, `elisa@ost.com.br`, `felipe@ost.com.br`
+- `http://localhost:5173`
+
+## Usuarios De Teste
+
+- Admin: `admin` ou `admin@ost.com.br` / `123456`
+- Usuarios: `ana.silva`, `bruno.costa`, `carla.souza`, `diego.lima`, `elisa.almeida`, `felipe.rocha`
 - Senha padrao dos usuarios: `123456`
 
-## Regras aplicadas no backend
+## Regras Principais
 
-- Dados inteiramente em memoria com listas e dicionarios
-- Usuario comum so cadastra palpite em jogo futuro e sem edicao posterior
-- Admin ve ranking, pote, detalhamento dos palpites e pode alternar a flag de pagamento
-- Ranking ordenado por:
-  1. Pontos totais
-  2. Placares exatos
-  3. Empates acertados na tendencia
-  4. Vencedores acertados
-- Pote considera apenas usuarios com `paid = true`
+- Cada participante paga R$ 100.
+- Apenas usuarios com `pagou = true` entram no calculo do pote e da premiacao.
+- Premiacao: 1o lugar 60%, 2o lugar 30%, 3o lugar 10%.
+- Placar exato vale 2 pontos.
+- Tendencia correta, vencedor ou empate, vale 1 ponto.
+- A pontuacao maxima por jogo e 2 pontos.
+- Usuario comum so cadastra palpite em jogos futuros, sem edicao depois do envio.
+- Palpites fecham 30 minutos antes do kickoff.
+- Jogos de Mata-Mata ficam bloqueados ate a Fase de Grupos estar completa.
+- Admin ve ranking, todos os palpites, pagamentos e pode inserir resultados.
+
+## Desempates Do Ranking
+
+1. Maior pontuacao total.
+2. Maior numero de placares exatos.
+3. Maior numero de empates acertados na tendencia.
+4. Maior numero de vencedores acertados.
+
+## Sincronizacao De Resultados
+
+O backend possui o endpoint admin `POST /admin/sync-matches`.
+
+Ele tenta buscar jogos finalizados na API-Football usando `API_FOOTBALL_KEY`. Se a chave nao estiver configurada e o fallback estiver ativo, usa resultados locais de teste definidos em `backend/app/services/api_football.py`.
+
+Tambem e possivel inserir ou atualizar placares manualmente pelo Dashboard do Admin.
