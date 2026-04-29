@@ -1,3 +1,4 @@
+use railway;
 INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou)
 VALUES
     ('admin-ost', 'Mariana Admin', 'admin', 'admin@ost.com.br', '$2b$12$B9EjzWFlX6qiikivLY3gnOW3fzcUWNFhv.Qsd9Uwf5rnW4MzknpZy', 1, 'Operacoes', 0),
