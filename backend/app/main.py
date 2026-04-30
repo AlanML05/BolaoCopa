@@ -41,8 +41,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://bolao-copa-hazel.vercel.app",
+        "https://bolaocopa-production-b06b.up.railway.app",
         "http://localhost:5173",
+        "https://bolao-copa-4a14hhase-alanmartinsleandro2k5-7193s-projects.vercel.app",
         ],
     allow_credentials=True,
     allow_methods=["*"],
