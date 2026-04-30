@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 import { loginUser } from "../services/api";
 
-const AUTH_STORAGE_KEY = "bolao-copa-ost.auth";
+const AUTH_STORAGE_KEY = "bolao-copa.auth";
 const AUTH_EXPIRED_EVENT = "bolao-auth-expired";
 const AuthContext = createContext(null);
 

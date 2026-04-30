@@ -1,6 +1,6 @@
 # Bolao Copa do Mundo
 
-MVP web do Bolao da Copa para a OST. O sistema usa React no frontend, FastAPI no backend e MySQL como persistencia oficial.
+MVP web generico para bolao da Copa do Mundo. O sistema usa React no frontend, FastAPI no backend e MySQL como persistencia oficial.
 
 ## Stack
 
@@ -91,7 +91,7 @@ Frontend local:
 
 ## Usuarios De Teste
 
-- Admin: `admin` ou `admin@ost.com.br` / `123456`
+- Admin: `admin` ou `admin@example.com` / `123456`
 - Usuarios: `ana.silva`, `bruno.costa`, `carla.souza`, `diego.lima`, `elisa.almeida`, `felipe.rocha`
 - Senha padrao dos usuarios: `123456`
 

@@ -53,7 +53,7 @@ export function LoginPage() {
       <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-5 py-10 sm:px-6 lg:px-8">
         <div className="grid w-full gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <section className="panel px-6 py-8 sm:px-8 sm:py-10">
-            <p className="eyebrow">OST World Cup Pool</p>
+            <p className="eyebrow">World Cup Pool</p>
             <h1 className="headline mt-4">Login do Bolao Copa 2026</h1>
             <p className="subtle-copy mt-4 max-w-lg">
               Entre com seu usuario e senha para receber um token seguro de acesso.

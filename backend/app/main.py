@@ -24,9 +24,9 @@ MATCH_COLUMNS = "id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, 
 BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, created_at"
 
 app = FastAPI(
-    title="Bolao Copa OST API",
+    title="Bolao Copa API",
     version="0.2.0",
-    summary="API do MVP do Bolao da Copa 2026 com persistencia em MySQL",
+    summary="API do MVP do Bolao da Copa com persistencia em MySQL",
 )
 
 app.add_middleware(
@@ -709,7 +709,7 @@ def require_admin(current_user: dict[str, Any] = Depends(get_current_user)) -> d
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
-        "message": "Bolao Copa OST API com persistencia em MySQL.",
+        "message": "Bolao Copa API com persistencia em MySQL.",
         "frontend_hint": "O frontend autentica via /login e envia Authorization: Bearer <token> nas rotas protegidas.",
         "available_routes": [
             "/login",

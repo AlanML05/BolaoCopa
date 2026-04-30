@@ -16,7 +16,7 @@ export function AppShell({ sessionUser, onLogout, children }) {
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 pb-10 pt-6 sm:px-6 lg:px-8">
         <header className="panel mb-8 flex flex-col gap-6 px-6 py-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
-            <p className="eyebrow">OST World Cup Pool</p>
+            <p className="eyebrow">World Cup Pool</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h1 className="font-display text-2xl font-semibold tracking-[0.03em] text-ink">
                 Bolao Copa 2026
@@ -38,7 +38,7 @@ export function AppShell({ sessionUser, onLogout, children }) {
                   </p>
                   <p className="mt-3 text-lg font-semibold text-ink">{sessionUser?.name}</p>
                   <p className="mt-1 text-sm text-muted">
-                    {sessionUser?.is_admin ? "Administrador OST" : `@${sessionUser?.username}`}
+                    {sessionUser?.is_admin ? "Administrador" : `@${sessionUser?.username}`}
                   </p>
                 </div>
                 <button type="button" className="button-secondary" onClick={onLogout}>
