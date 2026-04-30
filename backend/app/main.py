@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unicodedata
 from datetime import date as Date, datetime, timedelta, timezone
 from typing import Any, Literal
@@ -23,6 +24,14 @@ USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, 
 MATCH_COLUMNS = "id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, placar_b, finalizado"
 BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, created_at"
 
+
+def get_cors_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ALLOW_ORIGINS", "*")
+    if raw_origins.strip() == "*":
+        return ["*"]
+    return [origin.strip().rstrip("/") for origin in raw_origins.split(",") if origin.strip()]
+
+
 app = FastAPI(
     title="Bolao Copa API",
     version="0.2.0",
@@ -31,7 +40,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -163,8 +172,6 @@ def fetch_user_row_by_login(normalized_username: str) -> dict[str, Any] | None:
 
 def fetch_user_by_login(normalized_username: str) -> dict[str, Any] | None:
     row = fetch_user_row_by_login(normalized_username)
-    if row is None and normalized_username == "mariana.admin":
-        row = fetch_user_row_by_login("admin")
     return None if row is None else normalize_user(row)
 
 

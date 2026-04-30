@@ -1,4 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const rawApiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
 const AUTH_STORAGE_KEY = "bolao-copa.auth";
 const AUTH_EXPIRED_EVENT = "bolao-auth-expired";
 

@@ -26,13 +26,21 @@ DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=
 DB_NAME=bolao_copa
+CORS_ALLOW_ORIGINS=http://localhost:5173
 API_FOOTBALL_KEY=
-API_FOOTBALL_USE_LOCAL_FALLBACK=true
+API_FOOTBALL_USE_LOCAL_FALLBACK=false
 JWT_SECRET_KEY=change-me-in-development
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
-`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Com `API_FOOTBALL_USE_LOCAL_FALLBACK=true`, o backend usa resultados locais de teste quando a API externa nao estiver configurada. Troque `JWT_SECRET_KEY` por um valor forte no seu `.env` real.
+`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Se quiser testar a sincronizacao com resultados locais de 2022, use `API_FOOTBALL_USE_LOCAL_FALLBACK=true` apenas em ambiente local. Em producao, mantenha `false`. Troque `JWT_SECRET_KEY` por um valor forte no seu `.env` real.
+
+No deploy do frontend, configure a URL publica da API. O codigo aceita `VITE_API_BASE_URL` e tambem `VITE_API_URL` por compatibilidade:
+
+```env
+VITE_API_BASE_URL=https://sua-api.example.com
+```
 
 ## Banco De Dados
 
