@@ -1,8 +1,18 @@
-const rawApiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
+const configuredApiBaseUrl = [
+  import.meta.env.VITE_API_BASE_URL,
+  import.meta.env.VITE_API_URL,
+].find((value) => typeof value === "string" && value.trim().length > 0);
+
+const API_BASE_URL = (configuredApiBaseUrl ?? "http://localhost:8000")
+  .trim()
+  .replace(/\/+$/, "");
 const AUTH_STORAGE_KEY = "bolao-copa.auth";
 const AUTH_EXPIRED_EVENT = "bolao-auth-expired";
+
+function buildApiUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+}
 
 function notifyAuthExpired() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -18,7 +28,7 @@ async function request(path, { method = "GET", body, token } = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
