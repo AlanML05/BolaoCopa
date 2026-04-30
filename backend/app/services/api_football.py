@@ -131,7 +131,7 @@ class ApiFootballClient:
         return LOCAL_2022_RESULTS.get(match_date, [])
 
     def should_use_local_fallback(self) -> bool:
-        value = os.getenv("API_FOOTBALL_USE_LOCAL_FALLBACK", "true")
+        value = os.getenv("API_FOOTBALL_USE_LOCAL_FALLBACK", "false")
         return value.strip().lower() in LOCAL_FALLBACK_ENABLED_VALUES
 
     def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
