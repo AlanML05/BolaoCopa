@@ -41,10 +41,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://bolaocopa-production-b06b.up.railway.app",
-        "http://localhost:5173",
-        "https://bolao-copa-4a14hhase-alanmartinsleandro2k5-7193s-projects.vercel.app",
-        ],
+        "http://localhost:5173", # Mantemos o local para você testar no seu PC
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app", # A MÁGICA: Libera TODOS os links que a Vercel gerar!
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
