@@ -1,3 +1,4 @@
+use railway;
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(120) NOT NULL,
