@@ -55,6 +55,13 @@ export function loginUser(credentials) {
   });
 }
 
+export function signupUser(credentials) {
+  return request("/signup", {
+    method: "POST",
+    body: credentials,
+  });
+}
+
 export function getMyBetsOverview(token) {
   return request("/me/bets-overview", { token });
 }
@@ -69,6 +76,21 @@ export function createBet(token, betPayload) {
 
 export function getAdminDashboard(token) {
   return request("/admin/dashboard", { token });
+}
+
+export function createMatch(token, matchPayload) {
+  return request("/admin/matches", {
+    method: "POST",
+    token,
+    body: matchPayload,
+  });
+}
+
+export function deleteMatch(token, targetMatchId) {
+  return request(`/admin/matches/${targetMatchId}`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 export function updatePaymentStatus(token, targetUserId, paid) {

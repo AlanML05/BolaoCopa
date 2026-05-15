@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import os
-import unicodedata
-from datetime import date as Date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
+from uuid import uuid4
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pymysql.err import IntegrityError
 
 from .db import db_cursor
-from .security import create_access_token, decode_access_token, verify_password
-from .services.api_football import ApiFootballClient, ApiFootballError, FinishedMatchResult
+from .security import create_access_token, decode_access_token, get_password_hash, verify_password
 
 BET_PRICE = 100
 PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
@@ -55,10 +54,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SignUpRequest(BaseModel):
+    username: str = Field(max_length=80)
+    password: str = Field(max_length=128)
+
+
 class CreateBetRequest(BaseModel):
     match_id: str
     predicted_home_score: int = Field(ge=0, le=20)
     predicted_away_score: int = Field(ge=0, le=20)
+
+
+class CreateMatchRequest(BaseModel):
+    home_team: str = Field(max_length=80)
+    away_team: str = Field(max_length=80)
+    match_date: datetime
+    group_name: str = Field(max_length=80)
 
 
 class PaymentUpdateRequest(BaseModel):
@@ -68,10 +79,6 @@ class PaymentUpdateRequest(BaseModel):
 class MatchResultUpdateRequest(BaseModel):
     home_score: int = Field(ge=0, le=20)
     away_score: int = Field(ge=0, le=20)
-
-
-class SyncMatchesRequest(BaseModel):
-    date: Date | None = None
 
 
 def parse_datetime(value: str) -> datetime:
@@ -97,12 +104,12 @@ def now_for_database() -> datetime:
     return datetime.now(SAO_PAULO_TZ).replace(tzinfo=None, microsecond=0)
 
 
+def normalize_login_value(value: str) -> str:
+    return value.strip().lower()
 
 
-def normalize_team_lookup(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value)
-    ascii_value = "".join(character for character in normalized if not unicodedata.combining(character))
-    return " ".join(ascii_value.casefold().split())
+def normalize_text_field(value: str) -> str:
+    return " ".join(value.strip().split())
 
 
 def resolve_phase(fase: str, grupo: str | None) -> str:
@@ -277,6 +284,32 @@ def fetch_existing_bet(user_id: str, match_id: str) -> dict[str, Any] | None:
     return None if row is None else normalize_bet(row)
 
 
+def count_bets_by_match(match_id: str) -> int:
+    with db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM bets
+            WHERE match_id = %s
+            """,
+            (match_id,),
+        )
+        row = cursor.fetchone()
+    return int(row["total"])
+
+
+def next_match_id(cursor: Any) -> str:
+    cursor.execute(
+        """
+        SELECT COALESCE(MAX(CAST(SUBSTRING(id, 7) AS UNSIGNED)), 0) + 1 AS next_number
+        FROM matches
+        WHERE id REGEXP '^match-[0-9]+$'
+        """
+    )
+    row = cursor.fetchone()
+    return f'match-{int(row["next_number"]):03d}'
+
+
 def next_bet_id(cursor: Any) -> str:
     cursor.execute(
         """
@@ -393,11 +426,31 @@ def is_match_available_for_result_entry(match: dict[str, Any], reference_time: d
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
-    normalized_username = username.strip().lower()
+    normalized_username = normalize_login_value(username)
     user = fetch_user_by_login(normalized_username)
     if user is not None and verify_password(password, user["password_hash"]):
         return user
     return None
+
+
+def resolve_match_stage_and_group(group_name: str) -> tuple[str, str]:
+    normalized_group_name = normalize_text_field(group_name)
+    if not normalized_group_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe a fase ou grupo da partida.",
+        )
+
+    if normalized_group_name.casefold().startswith("grupo"):
+        group_parts = normalized_group_name.split()
+        group_code = group_parts[-1].upper() if len(group_parts) > 1 else normalized_group_name
+        return normalized_group_name, group_code
+
+    if len(normalized_group_name) == 1 and normalized_group_name.isalpha():
+        group_code = normalized_group_name.upper()
+        return f"Grupo {group_code}", group_code
+
+    return normalized_group_name, "Mata-Mata"
 
 
 def get_outcome(home_score: int, away_score: int) -> OUTCOME:
@@ -614,68 +667,6 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
         ],
     }
 
-
-def apply_synced_match_results(results: list[FinishedMatchResult]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    matches = fetch_all_matches()
-    match_index = {
-        (normalize_team_lookup(match["home_team"]), normalize_team_lookup(match["away_team"])): match
-        for match in matches
-    }
-    updated_matches: list[dict[str, Any]] = []
-    skipped_matches: list[dict[str, Any]] = []
-
-    if not results:
-        return updated_matches, skipped_matches
-
-    with db_cursor(commit=True) as cursor:
-        for result in results:
-            direct_key = (normalize_team_lookup(result.home_team), normalize_team_lookup(result.away_team))
-            reverse_key = (normalize_team_lookup(result.away_team), normalize_team_lookup(result.home_team))
-
-            match = match_index.get(direct_key)
-            if match is not None:
-                home_score = result.home_score
-                away_score = result.away_score
-            else:
-                match = match_index.get(reverse_key)
-                if match is None:
-                    skipped_matches.append(
-                        {
-                            "api_fixture_id": result.api_fixture_id,
-                            "home_team": result.home_team,
-                            "away_team": result.away_team,
-                            "reason": "Partida nao encontrada na tabela matches.",
-                        }
-                    )
-                    continue
-                home_score = result.away_score
-                away_score = result.home_score
-
-            cursor.execute(
-                """
-                UPDATE matches
-                SET placar_a = %s,
-                    placar_b = %s,
-                    finalizado = 1
-                WHERE id = %s
-                """,
-                (home_score, away_score, match["id"]),
-            )
-            updated_matches.append(
-                {
-                    "match_id": match["id"],
-                    "match_label": match_label(match),
-                    "api_fixture_id": result.api_fixture_id,
-                    "home_score": home_score,
-                    "away_score": away_score,
-                    "status": result.status,
-                    "played_at": result.played_at,
-                }
-            )
-
-    return updated_matches, skipped_matches
-
-
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -725,8 +716,9 @@ def root() -> dict[str, Any]:
             "/login",
             "/me/bets-overview",
             "/me/bets",
+            "/signup",
             "/admin/dashboard",
-            "/admin/sync-matches",
+            "/admin/matches",
             "/admin/matches/{match_id}/result",
             "/admin/users/{user_id}/payment",
         ],
@@ -744,6 +736,67 @@ def login(payload: LoginRequest) -> dict[str, Any]:
             "user": serialize_authenticated_user(user),
         }
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas.")
+
+
+@app.post("/signup", status_code=status.HTTP_201_CREATED)
+def signup(payload: SignUpRequest) -> dict[str, Any]:
+    username = normalize_login_value(payload.username)
+    password = payload.password
+
+    if len(username) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe um usuario com pelo menos 3 caracteres.",
+        )
+
+    if any(character.isspace() for character in username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use um usuario sem espacos.",
+        )
+
+    if len(password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe uma senha com pelo menos 6 caracteres.",
+        )
+
+    if fetch_user_row_by_login(username) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este usuario ja existe. Escolha outro nome de usuario.",
+        )
+
+    user_id = f"user-{uuid4().hex[:12]}"
+    password_hash = get_password_hash(password)
+
+    try:
+        with db_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou)
+                VALUES (%s, %s, %s, %s, %s, 0, %s, 0)
+                """,
+                (
+                    user_id,
+                    username,
+                    username,
+                    f"{user_id}@users.bolao.local",
+                    password_hash,
+                    "",
+                ),
+            )
+    except IntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este usuario ja existe. Escolha outro nome de usuario.",
+        ) from error
+
+    created_user = get_user(user_id)
+    return {
+        "message": "Cadastro criado com sucesso. Faca login para continuar.",
+        "user": serialize_user(created_user),
+    }
 
 
 @app.get("/me/bets-overview")
@@ -885,43 +938,71 @@ def get_admin_dashboard(_: dict[str, Any] = Depends(require_admin)) -> dict[str,
     return build_admin_dashboard_payload()
 
 
-@app.post("/admin/sync-matches")
-def sync_matches(
-    payload: SyncMatchesRequest | None = Body(default=None),
+@app.post("/admin/matches", status_code=status.HTTP_201_CREATED)
+def create_match(
+    payload: CreateMatchRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
-    sync_date = payload.date if payload and payload.date is not None else datetime.now(SAO_PAULO_TZ).date()
-    sync_source = "api-football"
-    api_error_detail = None
-    client = ApiFootballClient()
+    home_team = normalize_text_field(payload.home_team)
+    away_team = normalize_text_field(payload.away_team)
+    stage, group = resolve_match_stage_and_group(payload.group_name)
 
-    try:
-        api_results = client.get_finished_matches_by_date(sync_date)
-    except ApiFootballError as error:
-        fallback_results = client.get_local_finished_matches_by_date(sync_date)
-        if not client.should_use_local_fallback() or not fallback_results:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)) from error
-
-        api_results = fallback_results
-        sync_source = "local-2022-fallback"
-        api_error_detail = str(error)
-
-    try:
-        updated_matches, skipped_matches = apply_synced_match_results(api_results)
-    except Exception as error:
+    if not home_team or not away_team:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Nao foi possivel atualizar as partidas no banco de dados.",
-        ) from error
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe os dois times da partida.",
+        )
+
+    if home_team.casefold() == away_team.casefold():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Os times da partida precisam ser diferentes.",
+        )
+
+    kickoff_at = coerce_datetime(payload.match_date).replace(tzinfo=None, microsecond=0)
+
+    with db_cursor(commit=True) as cursor:
+        new_match_id = next_match_id(cursor)
+        cursor.execute(
+            """
+            INSERT INTO matches (id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, placar_b, finalizado)
+            VALUES (%s, %s, %s, %s, %s, %s, '', NULL, NULL, 0)
+            """,
+            (new_match_id, home_team, away_team, kickoff_at, stage, group),
+        )
+
+    created_match = get_match(new_match_id)
+    return {
+        "message": "Partida criada com sucesso.",
+        "match": serialize_match(created_match),
+        "dashboard": build_admin_dashboard_payload(),
+    }
+
+
+@app.delete("/admin/matches/{match_id}")
+def delete_match(
+    match_id: str,
+    _: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    match = get_match(match_id)
+    if count_bets_by_match(match_id) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel excluir uma partida que ja possui palpites registrados.",
+        )
+
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            DELETE FROM matches
+            WHERE id = %s
+            """,
+            (match_id,),
+        )
 
     return {
-        "message": "Sincronizacao concluida. Ranking recalculado.",
-        "sync_date": sync_date.isoformat(),
-        "sync_source": sync_source,
-        "api_error": api_error_detail,
-        "api_finished_matches": len(api_results),
-        "updated_matches": updated_matches,
-        "skipped_matches": skipped_matches,
+        "message": "Partida removida com sucesso.",
+        "match": serialize_match(match),
         "dashboard": build_admin_dashboard_payload(),
     }
 

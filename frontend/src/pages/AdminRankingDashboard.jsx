@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 
+import { MatchManager } from "../components/MatchManager";
 import { MatchResultManager } from "../components/MatchResultManager";
 import { RankingTable } from "../components/RankingTable";
 import { StatCard } from "../components/StatCard";
 import {
+  createMatch,
+  deleteMatch,
   getAdminDashboard,
   updateMatchResult,
   updatePaymentStatus,
@@ -34,6 +37,8 @@ export function AdminRankingDashboard({ sessionUser }) {
   const [notice, setNotice] = useState("");
   const [busyUserId, setBusyUserId] = useState("");
   const [busyMatchId, setBusyMatchId] = useState("");
+  const [creatingMatch, setCreatingMatch] = useState(false);
+  const [deletingMatchId, setDeletingMatchId] = useState("");
 
   function syncDashboard(nextDashboard) {
     setDashboard(nextDashboard);
@@ -132,6 +137,40 @@ export function AdminRankingDashboard({ sessionUser }) {
     }
   }
 
+  async function handleMatchCreate(matchPayload) {
+    setCreatingMatch(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await createMatch(sessionUser.accessToken, matchPayload);
+      syncDashboard(response.dashboard);
+      setNotice(response.message);
+      return true;
+    } catch (requestError) {
+      setError(requestError.message);
+      return false;
+    } finally {
+      setCreatingMatch(false);
+    }
+  }
+
+  async function handleMatchDelete(matchId) {
+    setDeletingMatchId(matchId);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await deleteMatch(sessionUser.accessToken, matchId);
+      syncDashboard(response.dashboard);
+      setNotice(response.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setDeletingMatchId("");
+    }
+  }
+
   if (loading) {
     return (
       <section className="panel flex min-h-[320px] items-center justify-center px-6 py-8">
@@ -205,6 +244,14 @@ export function AdminRankingDashboard({ sessionUser }) {
           {notice}
         </section>
       ) : null}
+
+      <MatchManager
+        matches={dashboard.matches}
+        creating={creatingMatch}
+        deletingMatchId={deletingMatchId}
+        onCreate={handleMatchCreate}
+        onDelete={handleMatchDelete}
+      />
 
       <section className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
         <div className="space-y-4">
