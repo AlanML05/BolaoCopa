@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AdminRankingDashboard } from "./pages/AdminRankingDashboard";
 import { LoginPage } from "./pages/LoginPage";
 import { MyBetsPage } from "./pages/MyBetsPage";
+import { SignUpPage } from "./pages/SignUpPage";
 
 function RootRedirect() {
   const { currentUser } = useAuth();
@@ -48,6 +49,14 @@ function AppRoutes() {
         element={
           <GuestOnlyRoute>
             <LoginPage />
+          </GuestOnlyRoute>
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          <GuestOnlyRoute>
+            <SignUpPage />
           </GuestOnlyRoute>
         }
       />

@@ -1,24 +1,86 @@
 # Bolao Copa do Mundo
 
-MVP web generico para bolao da Copa do Mundo. O sistema usa React no frontend, FastAPI no backend e MySQL como persistencia oficial.
+Sistema full-stack para gerenciamento de bolao da Copa do Mundo. O projeto permite cadastro de participantes, registro de palpites, controle manual de pagamentos, cadastro manual de partidas, insercao manual de placares e ranking automatico com criterios de desempate.
+
+## Visao Geral
+
+Este MVP foi desenhado para operar sem dependencia de APIs externas de futebol. O administrador controla manualmente a agenda de jogos e os resultados pelo painel administrativo, enquanto participantes criam conta, acessam jogos disponiveis e registram seus palpites antes do bloqueio configurado.
 
 ## Stack
 
-- `frontend/`: React + Vite + Tailwind CSS
-- `backend/`: Python + FastAPI + JWT + bcrypt
-- `database/`: scripts SQL de schema e seed para MySQL
-- Integracao opcional: API-Football para sincronizar resultados de partidas
+- Frontend: React, Vite, Tailwind CSS
+- Backend: Python, FastAPI, PyMySQL
+- Banco de dados: MySQL
+- Autenticacao: JWT com senha criptografada via bcrypt
+- Deploy validado: Vercel para frontend, Railway para backend e MySQL
 
-## Requisitos
+## Arquitetura
 
-- Python 3.11+
-- Node.js 20+
-- MySQL 8+
-- Chave JWT configurada no `.env`
+```text
+Usuario
+  -> Frontend React/Vite na Vercel
+  -> Backend FastAPI na Railway
+  -> MySQL na Railway
+```
 
-## Configuracao
+O frontend consome a API por meio da variavel `VITE_API_BASE_URL`. O backend libera origens via CORS e usa variaveis de ambiente para acessar o MySQL e assinar tokens JWT.
 
-Crie um arquivo `.env` na raiz do projeto usando `.env.example` como base:
+## Funcionalidades
+
+- Cadastro de novos participantes.
+- Login com token JWT.
+- Palpites por partida com bloqueio 30 minutos antes do kickoff.
+- Painel admin protegido.
+- CRUD manual de partidas futuras.
+- Insercao e atualizacao manual de placares.
+- Controle manual de pagamento dos participantes.
+- Ranking automatico com pote e distribuicao de premios.
+- Sem API-Football ou qualquer integracao de terceiros para resultados.
+
+## Regras Do Bolao
+
+- Cada participante paga R$ 100.
+- Apenas participantes com pagamento confirmado entram na distribuicao do pote.
+- Premiacao: 1o lugar 60%, 2o lugar 30%, 3o lugar 10%.
+- Placar exato vale 2 pontos.
+- Tendencia correta, vencedor ou empate, vale 1 ponto.
+- Palpites fecham 30 minutos antes do jogo.
+- Jogos de mata-mata ficam bloqueados ate a fase de grupos estar completa.
+
+## Desempates
+
+1. Maior pontuacao total.
+2. Maior numero de placares exatos.
+3. Maior numero de empates acertados na tendencia.
+4. Maior numero de vencedores acertados.
+
+## Estrutura Do Projeto
+
+```text
+backend/
+  app/
+    db.py
+    main.py
+    security.py
+  database/
+    schema.sql
+  requirements.txt
+
+frontend/
+  src/
+    components/
+    context/
+    pages/
+    services/
+  package.json
+
+seed.sql
+.env.example
+```
+
+## Variaveis De Ambiente
+
+Crie um arquivo `.env` na raiz do projeto com base em `.env.example`.
 
 ```env
 DB_HOST=localhost
@@ -27,24 +89,23 @@ DB_USER=root
 DB_PASSWORD=
 DB_NAME=bolao_copa
 CORS_ALLOW_ORIGINS=http://localhost:5173
-API_FOOTBALL_KEY=
-API_FOOTBALL_USE_LOCAL_FALLBACK=false
-JWT_SECRET_KEY=change-me-in-development
+JWT_SECRET_KEY=change-me
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
+```
+
+No frontend, configure:
+
+```env
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-`API_FOOTBALL_KEY` pode ficar vazio em desenvolvimento. Se quiser testar a sincronizacao com resultados locais de 2022, use `API_FOOTBALL_USE_LOCAL_FALLBACK=true` apenas em ambiente local. Em producao, mantenha `false`. Troque `JWT_SECRET_KEY` por um valor forte no seu `.env` real.
+Em producao, `VITE_API_BASE_URL` deve apontar para a URL publica do backend.
 
-No deploy do frontend, configure a URL publica da API. O codigo aceita `VITE_API_BASE_URL` e tambem `VITE_API_URL` por compatibilidade:
+## Rodando Localmente
 
-```env
-VITE_API_BASE_URL=https://sua-api.example.com
-```
+### 1. Banco De Dados
 
-## Banco De Dados
-
-Crie o banco e carregue a estrutura:
+Crie o banco:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS bolao_copa
@@ -52,24 +113,21 @@ CREATE DATABASE IF NOT EXISTS bolao_copa
   COLLATE utf8mb4_unicode_ci;
 ```
 
-Se o banco ja existia antes da migracao para JWT/bcrypt, ajuste o tamanho do campo de senha uma vez:
-
-```powershell
-mysql -u root -p bolao_copa -e "ALTER TABLE users MODIFY password_hash VARCHAR(255) NOT NULL;"
-```
-
-Depois execute os scripts:
+Execute o schema e o seed demonstrativo:
 
 ```powershell
 mysql -u root -p bolao_copa -e "source backend/database/schema.sql"
-mysql -u root -p bolao_copa -e "source backend/database/seed.sql"
+mysql -u root -p bolao_copa -e "source seed.sql"
 ```
 
-Observacao: o `seed.sql` usa `ON DUPLICATE KEY UPDATE`. Rodar o seed novamente atualiza usuarios, partidas, palpites, pagamentos e resultados para os valores do arquivo. Depois da migracao para JWT/bcrypt, rode o seed novamente para substituir os hashes SHA-256 antigos por hashes bcrypt.
+O `seed.sql` da raiz contem apenas dados ficticios para desenvolvimento: um admin demo, um participante demo e duas partidas de fase de grupos.
 
-## Como Rodar
+Credenciais locais do seed:
 
-### Backend
+- Admin: `admin.demo` / `123456`
+- Participante: `participante.demo` / `123456`
+
+### 2. Backend
 
 ```powershell
 python -m venv .venv
@@ -78,14 +136,12 @@ pip install -r backend\requirements.txt
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API local:
+Endpoints uteis:
 
-- `http://localhost:8000`
+- API: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 
-### Frontend
-
-Em outro terminal:
+### 3. Frontend
 
 ```powershell
 cd frontend
@@ -97,36 +153,22 @@ Frontend local:
 
 - `http://localhost:5173`
 
-## Usuarios De Teste
+## Deploy
 
-- Admin: `admin` ou `admin@example.com` / `123456`
-- Usuarios: `ana.silva`, `bruno.costa`, `carla.souza`, `diego.lima`, `elisa.almeida`, `felipe.rocha`
-- Senha padrao dos usuarios: `123456`
+Arquitetura validada:
 
-## Regras Principais
+- Vercel hospeda o frontend React/Vite.
+- Railway hospeda o backend FastAPI.
+- Railway hospeda o MySQL.
 
-- Cada participante paga R$ 100.
-- Apenas usuarios com `pagou = true` entram no calculo do pote e da premiacao.
-- Premiacao: 1o lugar 60%, 2o lugar 30%, 3o lugar 10%.
-- Placar exato vale 2 pontos.
-- Tendencia correta, vencedor ou empate, vale 1 ponto.
-- A pontuacao maxima por jogo e 2 pontos.
-- Usuario comum so cadastra palpite em jogos futuros, sem edicao depois do envio.
-- Palpites fecham 30 minutos antes do kickoff.
-- Jogos de Mata-Mata ficam bloqueados ate a Fase de Grupos estar completa.
-- Admin ve ranking, todos os palpites, pagamentos e pode inserir resultados.
+Variaveis principais:
 
-## Desempates Do Ranking
+- Backend Railway: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET_KEY`, `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`.
+- Frontend Vercel: `VITE_API_BASE_URL`.
 
-1. Maior pontuacao total.
-2. Maior numero de placares exatos.
-3. Maior numero de empates acertados na tendencia.
-4. Maior numero de vencedores acertados.
+## Observacoes De Producao
 
-## Sincronizacao De Resultados
-
-O backend possui o endpoint admin `POST /admin/sync-matches`.
-
-Ele tenta buscar jogos finalizados na API-Football usando `API_FOOTBALL_KEY`. Se a chave nao estiver configurada e o fallback estiver ativo, usa resultados locais de teste definidos em `backend/app/services/api_football.py`.
-
-Tambem e possivel inserir ou atualizar placares manualmente pelo Dashboard do Admin.
+- Nao use o `seed.sql` em producao.
+- Troque sempre o `JWT_SECRET_KEY`.
+- As credenciais reais devem ficar apenas em variaveis de ambiente.
+- O projeto nao depende de API externa para cadastrar jogos ou resultados.

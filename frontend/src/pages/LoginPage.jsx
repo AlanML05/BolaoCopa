@@ -1,18 +1,18 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
 
 const demoCredentials = [
   {
     label: "Admin",
-    username: "admin",
+    username: "admin.demo",
     password: "123456",
     description: "Acesso total ao ranking, palpites, pagamentos e resultados.",
   },
   {
     label: "Participante",
-    username: "ana.silva",
+    username: "participante.demo",
     password: "123456",
     description: "Fluxo de apostas sem acesso ao ranking ou aos palpites alheios.",
   },
@@ -20,6 +20,7 @@ const demoCredentials = [
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, sessionNotice } = useAuth();
   const [form, setForm] = useState({
     username: "",
@@ -27,6 +28,7 @@ export function LoginPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const signupNotice = location.state?.signupMessage ?? "";
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -96,15 +98,28 @@ export function LoginPage() {
                 />
               </div>
 
-              {error || sessionNotice ? (
-                <div className="rounded-3xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
-                  {error || sessionNotice}
+              {error || sessionNotice || signupNotice ? (
+                <div
+                  className={`rounded-3xl border px-4 py-3 text-sm ${
+                    error || sessionNotice
+                      ? "border-danger/20 bg-danger/5 text-danger"
+                      : "border-success/20 bg-success/5 text-success"
+                  }`}
+                >
+                  {error || sessionNotice || signupNotice}
                 </div>
               ) : null}
 
               <button type="submit" className="button-primary w-full" disabled={submitting}>
                 {submitting ? "Entrando..." : "Entrar"}
               </button>
+
+              <p className="text-center text-sm text-muted">
+                Nao tem uma conta?{" "}
+                <Link className="font-semibold text-accent transition hover:text-ink" to="/signup">
+                  Cadastre-se
+                </Link>
+              </p>
             </form>
           </section>
 
