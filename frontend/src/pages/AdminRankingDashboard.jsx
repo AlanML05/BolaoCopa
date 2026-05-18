@@ -39,6 +39,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   const [busyMatchId, setBusyMatchId] = useState("");
   const [creatingMatch, setCreatingMatch] = useState(false);
   const [deletingMatchId, setDeletingMatchId] = useState("");
+  const [showPaidPoolOnly, setShowPaidPoolOnly] = useState(false);
 
   function syncDashboard(nextDashboard) {
     setDashboard(nextDashboard);
@@ -81,14 +82,24 @@ export function AdminRankingDashboard({ sessionUser }) {
     };
   }, [sessionUser.accessToken]);
 
-  async function handlePaymentToggle(user) {
+  async function handleUserFinancialStatusChange(user, updates) {
     setBusyUserId(user.id);
     setError("");
     setNotice("");
 
+    const nextPayload = {
+      is_paid_pool: user.is_paid_pool,
+      paid: user.paid,
+      ...updates,
+    };
+
+    if (!nextPayload.is_paid_pool) {
+      nextPayload.paid = false;
+    }
+
     try {
-      const response = await updatePaymentStatus(sessionUser.accessToken, user.id, !user.paid);
-      await refreshDashboard();
+      const response = await updatePaymentStatus(sessionUser.accessToken, user.id, nextPayload);
+      syncDashboard(response.dashboard);
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
@@ -188,6 +199,11 @@ export function AdminRankingDashboard({ sessionUser }) {
     );
   }
 
+  const paidRanking = dashboard.paid_ranking ?? dashboard.ranking.filter((entry) => entry.is_paid_pool);
+  const financialUsers = showPaidPoolOnly
+    ? dashboard.users.filter((user) => user.is_paid_pool)
+    : dashboard.users;
+
   return (
     <div className="space-y-7">
       <section className="panel border-accent/10 px-6 py-7">
@@ -197,7 +213,7 @@ export function AdminRankingDashboard({ sessionUser }) {
             <h2 className="headline mt-4">Dashboard do Ranking</h2>
             <p className="subtle-copy mt-3">
               Ranking calculado com pontuacao automatica, desempates aplicados em ordem e
-              controle manual da elegibilidade financeira para o pote.
+              controle manual dos participantes do Bolao Pago.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -211,7 +227,7 @@ export function AdminRankingDashboard({ sessionUser }) {
         <StatCard
           label="Pote atual"
           value={formatCurrency(dashboard.prize_pool.total_collected)}
-          caption={`Baseado em ${dashboard.prize_pool.paid_participants} participantes pagos.`}
+          caption={`Baseado em ${dashboard.prize_pool.paid_participants} pagamentos confirmados.`}
           tone="accent"
         />
         <StatCard
@@ -227,9 +243,9 @@ export function AdminRankingDashboard({ sessionUser }) {
           tone="warning"
         />
         <StatCard
-          label="Participantes"
-          value={dashboard.summary.participants}
-          caption="Usuarios comuns incluidos no bolao, independentemente do status de pagamento."
+          label="Bolao Pago"
+          value={dashboard.prize_pool.paid_pool_participants ?? paidRanking.length}
+          caption="Participantes marcados pelo admin para concorrer ao premio em dinheiro."
         />
       </section>
 
@@ -253,16 +269,15 @@ export function AdminRankingDashboard({ sessionUser }) {
         onDelete={handleMatchDelete}
       />
 
-      <section className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+      <section className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-4">
           <div>
-            <p className="eyebrow">Ranking</p>
+            <p className="eyebrow">Ranking Geral</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Classificacao geral com desempates
+              Camisa do Brasil
             </h3>
             <p className="mt-2 text-sm text-muted">
-              A tabela mostra todos os participantes. A premiacao abaixo considera apenas quem
-              esta com pagamento confirmado.
+              Todos os participantes aparecem nesta classificacao.
             </p>
           </div>
           <RankingTable ranking={dashboard.ranking} />
@@ -270,31 +285,50 @@ export function AdminRankingDashboard({ sessionUser }) {
 
         <div className="space-y-4">
           <div>
-            <p className="eyebrow">Premiacao</p>
+            <p className="eyebrow">Ranking Bolao Pago</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Distribuicao do pote
+              Premio em dinheiro
             </h3>
+            <p className="mt-2 text-sm text-muted">
+              Apenas participantes marcados no controle financeiro entram nesta classificacao.
+            </p>
           </div>
-          <div className="space-y-4">
-            {dashboard.prize_pool.distribution.map((item) => (
-              <article key={item.position} className="panel-strong border-accent/10 px-5 py-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-muted">
-                      {item.position} lugar
-                    </p>
-                    <p className="mt-2 font-display text-2xl font-semibold text-ink">
-                      {formatCurrency(item.amount)}
-                    </p>
-                  </div>
-                  <span className="data-pill">{formatPercentage(item.percentage)}</span>
+          <RankingTable
+            ranking={paidRanking}
+            emptyMessage="Nenhum participante marcado para o Bolao Pago."
+          />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <p className="eyebrow">Premiacao</p>
+          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+            Distribuicao do pote
+          </h3>
+          <p className="mt-2 text-sm text-muted">
+            O valor do pote usa apenas pagamentos confirmados; a ordem segue o Ranking Bolao Pago.
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {dashboard.prize_pool.distribution.map((item) => (
+            <article key={item.position} className="panel-strong border-accent/10 px-5 py-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-muted">
+                    {item.position} lugar
+                  </p>
+                  <p className="mt-2 font-display text-2xl font-semibold text-ink">
+                    {formatCurrency(item.amount)}
+                  </p>
                 </div>
-                <p className="mt-4 text-sm text-muted">
-                  {item.user_name ? `Elegivel atual: ${item.user_name}` : "Sem participante elegivel."}
-                </p>
-              </article>
-            ))}
-          </div>
+                <span className="data-pill">{formatPercentage(item.percentage)}</span>
+              </div>
+              <p className="mt-4 text-sm text-muted">
+                {item.user_name ? `Elegivel atual: ${item.user_name}` : "Sem participante elegivel."}
+              </p>
+            </article>
+          ))}
         </div>
       </section>
 
@@ -310,36 +344,90 @@ export function AdminRankingDashboard({ sessionUser }) {
         </div>
 
         <div className="space-y-4">
-          <div>
-            <p className="eyebrow">Financeiro</p>
-            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Controle mockado de pagamento
-            </h3>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="eyebrow">Financeiro</p>
+              <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+                Controle do Bolao Pago
+              </h3>
+            </div>
+            <label className="flex items-center justify-between gap-3 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+              <span>Mostrar apenas participantes</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 accent-sky-300"
+                checked={showPaidPoolOnly}
+                onChange={(event) => setShowPaidPoolOnly(event.target.checked)}
+              />
+            </label>
           </div>
           <div className="space-y-3">
-            {dashboard.users.map((user) => (
+            {financialUsers.map((user) => (
               <article
                 key={user.id}
-                className="panel flex items-center justify-between gap-4 px-5 py-4 transition hover:border-accent/30"
+                className="panel space-y-4 px-5 py-4 transition hover:border-accent/30"
               >
-                <div>
-                  <p className="font-semibold text-ink">{user.name}</p>
-                  <p className="mt-1 text-sm text-muted">{user.department}</p>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-ink">{user.name}</p>
+                    <p className="mt-1 text-sm text-muted">{user.department || user.username}</p>
+                  </div>
+                  <span
+                    className={`data-pill ${
+                      user.is_paid_pool ? "border-accent/20 text-accent" : "text-muted"
+                    }`}
+                  >
+                    {user.is_paid_pool ? "No Bolao Pago" : "Ranking Geral"}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  className={user.paid ? "button-secondary" : "button-primary"}
-                  onClick={() => handlePaymentToggle(user)}
-                  disabled={busyUserId === user.id}
-                >
-                  {busyUserId === user.id
-                    ? "Atualizando..."
-                    : user.paid
-                      ? "Marcar pendente"
-                      : "Confirmar pagamento"}
-                </button>
+
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+                    <span>Participa do Bolao Pago?</span>
+                    <input
+                      type="checkbox"
+                      className="h-5 w-5 accent-sky-300"
+                      checked={Boolean(user.is_paid_pool)}
+                      disabled={busyUserId === user.id}
+                      onChange={(event) =>
+                        handleUserFinancialStatusChange(user, {
+                          is_paid_pool: event.target.checked,
+                          paid: event.target.checked ? user.paid : false,
+                        })
+                      }
+                    />
+                  </label>
+
+                  {user.is_paid_pool ? (
+                    <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+                      <span>Pagamento Realizado?</span>
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 accent-sky-300"
+                        checked={Boolean(user.paid)}
+                        disabled={busyUserId === user.id}
+                        onChange={(event) =>
+                          handleUserFinancialStatusChange(user, {
+                            paid: event.target.checked,
+                          })
+                        }
+                      />
+                    </label>
+                  ) : null}
+                </div>
               </article>
             ))}
+
+            {financialUsers.length === 0 ? (
+              <section className="panel px-5 py-5">
+                <p className="text-sm font-semibold text-ink">
+                  Nenhum participante no filtro atual.
+                </p>
+                <p className="mt-2 text-sm text-muted">
+                  Marque usuarios como participantes do Bolao Pago para eles aparecerem aqui.
+                </p>
+              </section>
+            ) : null}
           </div>
         </div>
       </section>

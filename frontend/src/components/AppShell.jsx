@@ -21,7 +21,7 @@ export function AppShell({ sessionUser, onLogout, children }) {
               <h1 className="font-display text-2xl font-semibold tracking-[0.03em] text-ink">
                 Bolao Copa 2026
               </h1>
-              <span className="data-pill">MVP sem banco real</span>
+              <span className="data-pill">Controle manual</span>
             </div>
             <p className="subtle-copy mt-3 max-w-xl">
               Fluxo com MySQL e JWT para validar a experiencia do participante, ranking do admin
@@ -50,17 +50,6 @@ export function AppShell({ sessionUser, onLogout, children }) {
                 <span className="data-pill">
                   {sessionUser?.is_admin ? "Acesso admin" : "Participante"}
                 </span>
-                {!sessionUser?.is_admin ? (
-                  <span
-                    className={`data-pill ${
-                      sessionUser?.paid
-                        ? "border-success/20 text-success"
-                        : "border-warning/20 text-warning"
-                    }`}
-                  >
-                    {sessionUser?.paid ? "Pagamento confirmado" : "Pagamento pendente"}
-                  </span>
-                ) : null}
               </div>
             </div>
 

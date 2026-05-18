@@ -43,12 +43,13 @@ export function MatchBetCard({
 
       {hasExistingBet ? (
         <div className="mt-8 rounded-2xl border border-success/15 bg-success/5 px-4 py-4">
-          <p className="text-sm font-semibold text-success">Palpite bloqueado para edicao</p>
+          <p className="text-sm font-semibold text-success">Palpite registrado</p>
           <p className="mt-3 text-3xl font-semibold text-ink">
             {match.existing_bet.predicted_home_score} x {match.existing_bet.predicted_away_score}
           </p>
           <p className="mt-3 text-sm text-muted">
-            Registrado em {formatDateTime(match.existing_bet.created_at)}.
+            Registrado em {formatDateTime(match.existing_bet.created_at)}. Edicoes ficam no
+            Historico enquanto a janela estiver aberta.
           </p>
         </div>
       ) : (

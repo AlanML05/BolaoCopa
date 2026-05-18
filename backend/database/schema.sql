@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin TINYINT(1) NOT NULL DEFAULT 0,
     department VARCHAR(80) NOT NULL DEFAULT '',
     pagou TINYINT(1) NOT NULL DEFAULT 0,
+    is_paid_pool TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -17,6 +18,8 @@ CREATE TABLE IF NOT EXISTS matches (
     data_hora DATETIME NOT NULL,
     fase VARCHAR(80) NOT NULL,
     grupo VARCHAR(30) NOT NULL,
+    tournament_phase VARCHAR(40) NOT NULL DEFAULT 'Fase de Grupos',
+    sub_phase VARCHAR(80) NOT NULL DEFAULT '',
     estadio VARCHAR(120) NOT NULL DEFAULT '',
     placar_a TINYINT UNSIGNED NULL,
     placar_b TINYINT UNSIGNED NULL,

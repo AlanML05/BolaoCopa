@@ -1,4 +1,4 @@
-export function RankingTable({ ranking }) {
+export function RankingTable({ ranking = [], emptyMessage = "Nenhum participante encontrado." }) {
   return (
     <div className="panel overflow-hidden">
       <div className="overflow-x-auto">
@@ -7,7 +7,6 @@ export function RankingTable({ ranking }) {
             <tr className="text-left text-xs uppercase tracking-[0.22em] text-muted">
               <th className="px-4 py-4 font-medium">Pos.</th>
               <th className="px-4 py-4 font-medium">Participante</th>
-              <th className="px-4 py-4 font-medium">Pagou</th>
               <th className="px-4 py-4 font-medium">Pontos</th>
               <th className="px-4 py-4 font-medium">Exatos</th>
               <th className="px-4 py-4 font-medium">Empates</th>
@@ -28,23 +27,19 @@ export function RankingTable({ ranking }) {
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-4">
-                  <span
-                    className={`data-pill ${
-                      entry.paid
-                        ? "border-success/20 text-success"
-                        : "border-warning/20 text-warning"
-                    }`}
-                  >
-                    {entry.paid ? "Pago" : "Pendente"}
-                  </span>
-                </td>
                 <td className="px-4 py-4 text-lg font-semibold">{entry.total_points}</td>
                 <td className="px-4 py-4 text-muted">{entry.exact_hits}</td>
                 <td className="px-4 py-4 text-muted">{entry.draw_tendency_hits}</td>
                 <td className="px-4 py-4 text-muted">{entry.winner_tendency_hits}</td>
               </tr>
             ))}
+            {ranking.length === 0 ? (
+              <tr className="bg-panel/40 text-sm text-muted">
+                <td className="px-4 py-5" colSpan={6}>
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

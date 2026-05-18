@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
-import { createBet, getMyBetsOverview } from "../services/api";
+import { createBet, getMyBetsOverview, updateBet } from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
-const KNOCKOUT_TAB_ID = "knockout";
+const EMPTY_MATCHES = [];
+const LOCK_WINDOW_MS = 30 * 60 * 1000;
 
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
@@ -17,57 +18,54 @@ function createDefaultForms(matches) {
   }, {});
 }
 
-function getGroupKey(match) {
-  return match.group ?? match.grupo ?? match.stage?.replace("Grupo ", "") ?? "Sem grupo";
+function createSubmittedBetForms(bets) {
+  return bets.reduce((accumulator, bet) => {
+    accumulator[bet.bet_id] = {
+      homeScore: String(bet.predicted_home_score),
+      awayScore: String(bet.predicted_away_score),
+    };
+    return accumulator;
+  }, {});
 }
 
-function buildMatchTabs(matches) {
-  const groups = new Map();
-  const knockoutMatches = [];
+function getMatchDateKey(match) {
+  const datePart = match.kickoff_at?.slice(0, 10);
+  return datePart || "sem-data";
+}
 
-  matches.forEach((match) => {
-    if (match.phase === "knockout") {
-      knockoutMatches.push(match);
-      return;
-    }
+function formatDateLabel(dateKey) {
+  if (dateKey === "sem-data") {
+    return "Sem data definida";
+  }
 
-    const group = getGroupKey(match);
-    const id = `group-${group}`;
+  const [year, month, day] = dateKey.split("-");
+  return `${day}/${month}/${year}`;
+}
 
-    if (!groups.has(id)) {
-      groups.set(id, {
-        id,
-        label: `Grupo ${group}`,
-        sortKey: group,
-        matches: [],
-      });
-    }
+function getSubPhaseLabel(match) {
+  return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
+}
 
-    groups.get(id).matches.push(match);
-  });
+function isBetEditable(match, currentTime) {
+  const kickoffTime = Date.parse(match.kickoff_at);
+  const closedByClientClock =
+    Number.isFinite(kickoffTime) && kickoffTime - currentTime <= LOCK_WINDOW_MS;
+  const isScheduled = match.status === "scheduled";
 
-  const groupTabs = Array.from(groups.values()).sort((first, second) =>
-    first.sortKey.localeCompare(second.sortKey, "pt-BR", { numeric: true }),
-  );
-
-  return [
-    ...groupTabs,
-    {
-      id: KNOCKOUT_TAB_ID,
-      label: "Mata-Mata",
-      sortKey: "zz",
-      matches: knockoutMatches,
-    },
-  ];
+  return isScheduled && Number.isFinite(kickoffTime) && !closedByClientClock;
 }
 
 export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
   const [forms, setForms] = useState({});
-  const [activeTab, setActiveTab] = useState("");
+  const [editForms, setEditForms] = useState({});
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSubPhase, setSelectedSubPhase] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
+  const [editingBetId, setEditingBetId] = useState("");
+  const [savingBetId, setSavingBetId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -91,13 +89,7 @@ export function MyBetsPage({ sessionUser }) {
 
         setOverview(payload);
         setForms(createDefaultForms(payload.upcoming_matches));
-        setActiveTab((current) => {
-          const nextTabs = buildMatchTabs(payload.upcoming_matches);
-          if (nextTabs.some((tab) => tab.id === current)) {
-            return current;
-          }
-          return nextTabs[0]?.id ?? KNOCKOUT_TAB_ID;
-        });
+        setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
         if (active) {
           setError(requestError.message);
@@ -115,6 +107,52 @@ export function MyBetsPage({ sessionUser }) {
       active = false;
     };
   }, [sessionUser.accessToken]);
+
+  const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
+  const groupStageComplete = Boolean(overview?.metadata?.group_stage_complete);
+  const filterableMatches = useMemo(() => {
+    return upcomingMatches.filter((match) => groupStageComplete || match.phase !== "knockout");
+  }, [groupStageComplete, upcomingMatches]);
+  const dateOptions = useMemo(() => {
+    return Array.from(new Set(filterableMatches.map(getMatchDateKey))).sort((first, second) =>
+      first.localeCompare(second, "pt-BR", { numeric: true }),
+    );
+  }, [filterableMatches]);
+  const subPhaseOptions = useMemo(() => {
+    if (!selectedDate) {
+      return [];
+    }
+
+    const matchesOnDate = filterableMatches.filter(
+      (match) => getMatchDateKey(match) === selectedDate,
+    );
+    return Array.from(new Set(matchesOnDate.map(getSubPhaseLabel))).sort((first, second) =>
+      first.localeCompare(second, "pt-BR", { numeric: true }),
+    );
+  }, [filterableMatches, selectedDate]);
+  const visibleMatches = useMemo(() => {
+    if (!selectedDate || !selectedSubPhase) {
+      return [];
+    }
+
+    return filterableMatches.filter(
+      (match) =>
+        getMatchDateKey(match) === selectedDate && getSubPhaseLabel(match) === selectedSubPhase,
+    );
+  }, [filterableMatches, selectedDate, selectedSubPhase]);
+
+  useEffect(() => {
+    if (selectedDate && !dateOptions.includes(selectedDate)) {
+      setSelectedDate("");
+      setSelectedSubPhase("");
+    }
+  }, [dateOptions, selectedDate]);
+
+  useEffect(() => {
+    if (selectedSubPhase && !subPhaseOptions.includes(selectedSubPhase)) {
+      setSelectedSubPhase("");
+    }
+  }, [selectedSubPhase, subPhaseOptions]);
 
   function handleFieldChange(matchId, field, value) {
     setForms((current) => ({
@@ -150,17 +188,79 @@ export function MyBetsPage({ sessionUser }) {
       const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
       setForms(createDefaultForms(refreshed.upcoming_matches));
-      setActiveTab((current) => {
-        const nextTabs = buildMatchTabs(refreshed.upcoming_matches);
-        return nextTabs.some((tab) => tab.id === current)
-          ? current
-          : nextTabs[0]?.id ?? KNOCKOUT_TAB_ID;
-      });
+      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setSavingMatchId("");
+    }
+  }
+
+  function handleEditFieldChange(betId, field, value) {
+    setEditForms((current) => ({
+      ...current,
+      [betId]: {
+        ...current[betId],
+        [field]: value,
+      },
+    }));
+  }
+
+  function handleEditStart(bet) {
+    setEditingBetId(bet.bet_id);
+    setEditForms((current) => ({
+      ...current,
+      [bet.bet_id]: {
+        homeScore: String(bet.predicted_home_score),
+        awayScore: String(bet.predicted_away_score),
+      },
+    }));
+    setNotice("");
+    setError("");
+  }
+
+  function handleEditCancel(bet) {
+    setEditingBetId("");
+    setEditForms((current) => ({
+      ...current,
+      [bet.bet_id]: {
+        homeScore: String(bet.predicted_home_score),
+        awayScore: String(bet.predicted_away_score),
+      },
+    }));
+  }
+
+  async function handleEditSubmit(bet) {
+    const form = editForms[bet.bet_id];
+    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
+    const homeScore = Number(form?.homeScore);
+    const awayScore = Number(form?.awayScore);
+
+    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+      setNotice("Preencha os dois placares antes de salvar a edicao.");
+      return;
+    }
+
+    setSavingBetId(bet.bet_id);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await updateBet(sessionUser.accessToken, bet.bet_id, {
+        predicted_home_score: homeScore,
+        predicted_away_score: awayScore,
+      });
+      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
+      setOverview(refreshed);
+      setForms(createDefaultForms(refreshed.upcoming_matches));
+      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      setEditingBetId("");
+      setNotice(response.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingBetId("");
     }
   }
 
@@ -181,12 +281,6 @@ export function MyBetsPage({ sessionUser }) {
     );
   }
 
-  const tabs = buildMatchTabs(overview.upcoming_matches);
-  const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
-  const groupStageComplete = Boolean(overview.metadata?.group_stage_complete);
-  const isKnockoutTab = selectedTab?.id === KNOCKOUT_TAB_ID;
-  const visibleMatches = isKnockoutTab && !groupStageComplete ? [] : selectedTab?.matches ?? [];
-
   return (
     <div className="space-y-7">
       <section className="panel border-accent/10 px-6 py-7">
@@ -195,21 +289,11 @@ export function MyBetsPage({ sessionUser }) {
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
             <p className="subtle-copy mt-3">
-              Navegue por grupo, registre palpites em partidas abertas e acompanhe o bloqueio
-              automatico de 30 minutos antes do kickoff.
+              Escolha uma data e uma sub-fase para registrar seus palpites nas partidas abertas.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <span className="data-pill">Usuario: {overview.user.name}</span>
-            <span
-              className={`data-pill ${
-                overview.user.paid
-                  ? "border-success/20 text-success"
-                  : "border-warning/20 text-warning"
-              }`}
-            >
-              {overview.user.paid ? "Pagamento confirmado" : "Pagamento pendente"}
-            </span>
           </div>
         </div>
       </section>
@@ -255,47 +339,68 @@ export function MyBetsPage({ sessionUser }) {
       <section className="space-y-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="eyebrow">Cadastro</p>
+            <p className="eyebrow">Palpites</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Partidas por fase
+              Escolha os jogos
             </h3>
           </div>
           <p className="text-sm text-muted">
-            A aba Mata-Mata libera palpites somente depois da Fase de Grupos.
+            Os jogos aparecem depois que voce selecionar a data e a sub-fase.
           </p>
         </div>
 
-        <div className="panel overflow-hidden p-2">
-          <div className="flex gap-2 overflow-x-auto p-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                  tab.id === selectedTab?.id
-                    ? "bg-accent text-canvas shadow-[0_12px_34px_rgba(139,213,255,0.18)]"
-                    : "border border-line/80 bg-canvas/70 text-muted hover:border-accent/50 hover:text-ink"
-                }`}
-                onClick={() => setActiveTab(tab.id)}
+        <div className="panel px-5 py-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Data
+              <select
+                className="field mt-2"
+                value={selectedDate}
+                onChange={(event) => {
+                  setSelectedDate(event.target.value);
+                  setSelectedSubPhase("");
+                }}
               >
-                {tab.label}
-                <span className="ml-2 rounded-full bg-black/20 px-2 py-0.5 text-xs">
-                  {tab.matches.length}
-                </span>
-              </button>
-            ))}
+                <option value="">Selecione uma data</option>
+                {dateOptions.map((dateKey) => (
+                  <option key={dateKey} value={dateKey}>
+                    {formatDateLabel(dateKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Grupo/Sub-fase
+              <select
+                className="field mt-2"
+                value={selectedSubPhase}
+                onChange={(event) => setSelectedSubPhase(event.target.value)}
+                disabled={!selectedDate}
+              >
+                <option value="">Selecione uma sub-fase</option>
+                {subPhaseOptions.map((subPhase) => (
+                  <option key={subPhase} value={subPhase}>
+                    {subPhase}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
-        {isKnockoutTab && !groupStageComplete ? (
-          <section className="panel-strong border-warning/20 px-6 py-8">
-            <p className="eyebrow">Mata-Mata</p>
-            <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
-              Aguardando definicao da Fase de Grupos
-            </h4>
-            <p className="subtle-copy mt-3 max-w-2xl">
-              Assim que todos os jogos de grupo tiverem resultado informado pelo admin, os
-              confrontos eliminatorios ficam visiveis e liberados conforme a janela de 30 minutos.
+        {filterableMatches.length === 0 ? (
+          <section className="panel px-6 py-8">
+            <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
+            <p className="mt-2 text-sm text-muted">
+              Quando novas partidas forem cadastradas, elas aparecerao aqui.
+            </p>
+          </section>
+        ) : !selectedDate || !selectedSubPhase ? (
+          <section className="panel px-6 py-8">
+            <p className="text-sm font-semibold text-ink">Selecione data e sub-fase.</p>
+            <p className="mt-2 text-sm text-muted">
+              Use os filtros acima para carregar somente os jogos que deseja palpitar.
             </p>
           </section>
         ) : visibleMatches.length > 0 ? (
@@ -314,9 +419,9 @@ export function MyBetsPage({ sessionUser }) {
           </div>
         ) : (
           <section className="panel px-6 py-8">
-            <p className="text-sm font-semibold text-ink">Nenhuma partida nesta aba.</p>
+            <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
             <p className="mt-2 text-sm text-muted">
-              Quando novas partidas forem cadastradas para esta fase, elas aparecerao aqui.
+              Escolha outra data ou sub-fase para consultar os jogos disponiveis.
             </p>
           </section>
         )}
@@ -331,49 +436,148 @@ export function MyBetsPage({ sessionUser }) {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {overview.submitted_bets.map((bet) => (
-            <article key={bet.bet_id} className="panel px-5 py-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="eyebrow">{bet.match.stage}</p>
-                  <h4 className="mt-2 font-display text-xl font-semibold text-ink">
-                    {bet.match.label}
-                  </h4>
-                  <p className="mt-2 text-sm text-muted">
-                    {formatDateTime(bet.match.kickoff_at)} - {bet.match.stadium}
-                  </p>
-                </div>
-                <span
-                  className={`data-pill ${
-                    bet.match.status === "finished"
-                      ? "border-warning/20 text-warning"
-                      : "border-accent/20 text-accent"
-                  }`}
-                >
-                  {bet.match.status === "finished" ? "Encerrado" : "Agendado"}
-                </span>
-              </div>
+          {overview.submitted_bets.map((bet) => {
+            const editable = isBetEditable(bet.match, currentTime);
+            const isEditing = editingBetId === bet.bet_id;
+            const editForm = editForms[bet.bet_id] ?? {
+              homeScore: String(bet.predicted_home_score),
+              awayScore: String(bet.predicted_away_score),
+            };
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-muted">Seu palpite</p>
-                  <p className="mt-3 text-2xl font-semibold text-ink">
-                    {bet.predicted_home_score} x {bet.predicted_away_score}
-                  </p>
+            return (
+              <article key={bet.bet_id} className="panel px-5 py-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="eyebrow">{bet.match.stage}</p>
+                    <h4 className="mt-2 font-display text-xl font-semibold text-ink">
+                      {bet.match.label}
+                    </h4>
+                    <p className="mt-2 text-sm text-muted">
+                      {formatDateTime(bet.match.kickoff_at)} - {bet.match.stadium}
+                    </p>
+                  </div>
+                  <span
+                    className={`data-pill ${
+                      bet.match.status === "finished"
+                        ? "border-warning/20 text-warning"
+                        : "border-accent/20 text-accent"
+                    }`}
+                  >
+                    {bet.match.status === "finished" ? "Encerrado" : "Agendado"}
+                  </span>
                 </div>
-                <div className="rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-muted">Resultado</p>
-                  <p className="mt-3 text-2xl font-semibold text-ink">
-                    {formatScore(bet.match.home_score, bet.match.away_score)}
-                  </p>
-                </div>
-              </div>
 
-              <p className="mt-4 text-sm text-muted">
-                Registrado em {formatDateTime(bet.created_at)}.
+                {isEditing ? (
+                  <form
+                    className="mt-6 space-y-4"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      handleEditSubmit(bet);
+                    }}
+                  >
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                      <label className="text-xs uppercase tracking-[0.22em] text-muted">
+                        {bet.match.home_team}
+                        <input
+                          type="number"
+                          min="0"
+                          max="20"
+                          className="field mt-2 text-center text-xl font-semibold"
+                          value={editForm.homeScore}
+                          onChange={(event) =>
+                            handleEditFieldChange(bet.bet_id, "homeScore", event.target.value)
+                          }
+                          disabled={savingBetId === bet.bet_id}
+                        />
+                      </label>
+
+                      <span className="pt-7 text-center text-2xl font-semibold text-muted">x</span>
+
+                      <label className="text-xs uppercase tracking-[0.22em] text-muted">
+                        {bet.match.away_team}
+                        <input
+                          type="number"
+                          min="0"
+                          max="20"
+                          className="field mt-2 text-center text-xl font-semibold"
+                          value={editForm.awayScore}
+                          onChange={(event) =>
+                            handleEditFieldChange(bet.bet_id, "awayScore", event.target.value)
+                          }
+                          disabled={savingBetId === bet.bet_id}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="submit"
+                        className="button-primary flex-1"
+                        disabled={savingBetId === bet.bet_id}
+                      >
+                        {savingBetId === bet.bet_id ? "Salvando..." : "Salvar edicao"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary flex-1"
+                        onClick={() => handleEditCancel(bet)}
+                        disabled={savingBetId === bet.bet_id}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.22em] text-muted">
+                          Seu palpite
+                        </p>
+                        <p className="mt-3 text-2xl font-semibold text-ink">
+                          {bet.predicted_home_score} x {bet.predicted_away_score}
+                        </p>
+                      </div>
+                      <div className="rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.22em] text-muted">Resultado</p>
+                        <p className="mt-3 text-2xl font-semibold text-ink">
+                          {formatScore(bet.match.home_score, bet.match.away_score)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-muted">
+                        Registrado em {formatDateTime(bet.created_at)}.
+                      </p>
+                      {editable ? (
+                        <button
+                          type="button"
+                          className="button-secondary"
+                          onClick={() => handleEditStart(bet)}
+                        >
+                          Editar palpite
+                        </button>
+                      ) : (
+                        <span className="data-pill border-warning/20 text-warning">
+                          Edicao bloqueada
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </article>
+            );
+          })}
+
+          {overview.submitted_bets.length === 0 ? (
+            <section className="panel px-6 py-8">
+              <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
+              <p className="mt-2 text-sm text-muted">
+                Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
               </p>
-            </article>
-          ))}
+            </section>
+          ) : null}
         </div>
       </section>
     </div>

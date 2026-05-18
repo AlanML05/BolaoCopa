@@ -6,12 +6,27 @@ const initialForm = {
   home_team: "",
   away_team: "",
   match_date: "",
-  group_name: "",
+  tournament_phase: "Fase de Grupos",
+  sub_phase: "Grupo A",
 };
 
-function isFutureScheduledMatch(match) {
-  return match.status === "scheduled" && new Date(match.kickoff_at).getTime() > Date.now();
-}
+const subPhaseOptions = {
+  "Fase de Grupos": [
+    "Grupo A",
+    "Grupo B",
+    "Grupo C",
+    "Grupo D",
+    "Grupo E",
+    "Grupo F",
+    "Grupo G",
+    "Grupo H",
+    "Grupo I",
+    "Grupo J",
+    "Grupo K",
+    "Grupo L",
+  ],
+  "Fase Mata-Mata": ["Oitavas", "Quartas", "Semifinal", "Terceiro Lugar", "Final"],
+};
 
 export function MatchManager({
   matches,
@@ -22,10 +37,9 @@ export function MatchManager({
 }) {
   const [form, setForm] = useState(initialForm);
 
-  const upcomingMatches = useMemo(
+  const managedMatches = useMemo(
     () =>
       matches
-        .filter(isFutureScheduledMatch)
         .sort((first, second) => new Date(first.kickoff_at) - new Date(second.kickoff_at)),
     [matches],
   );
@@ -34,6 +48,7 @@ export function MatchManager({
     setForm((current) => ({
       ...current,
       [field]: value,
+      ...(field === "tournament_phase" ? { sub_phase: subPhaseOptions[value][0] } : {}),
     }));
   }
 
@@ -43,7 +58,8 @@ export function MatchManager({
       home_team: form.home_team,
       away_team: form.away_team,
       match_date: form.match_date,
-      group_name: form.group_name,
+      tournament_phase: form.tournament_phase,
+      sub_phase: form.sub_phase,
     });
 
     if (created) {
@@ -66,7 +82,7 @@ export function MatchManager({
           Gerenciar jogos
         </h3>
         <p className="mt-2 text-sm text-muted">
-          Cadastre partidas futuras e remova jogos criados por engano antes dos palpites.
+          Cadastre partidas e remova jogos criados por engano antes dos palpites.
         </p>
       </div>
 
@@ -118,17 +134,37 @@ export function MatchManager({
 
           <div>
             <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
-              Fase ou grupo
+              Fase
             </label>
-            <input
-              type="text"
+            <select
               className="field"
-              placeholder="Grupo A ou Oitavas"
-              value={form.group_name}
-              onChange={(event) => handleFieldChange("group_name", event.target.value)}
+              value={form.tournament_phase}
+              onChange={(event) => handleFieldChange("tournament_phase", event.target.value)}
               disabled={creating}
               required
-            />
+            >
+              <option value="Fase de Grupos">Fase de Grupos</option>
+              <option value="Fase Mata-Mata">Fase Mata-Mata</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
+              Sub-fase
+            </label>
+            <select
+              className="field"
+              value={form.sub_phase}
+              onChange={(event) => handleFieldChange("sub_phase", event.target.value)}
+              disabled={creating}
+              required
+            >
+              {subPhaseOptions[form.tournament_phase].map((subPhase) => (
+                <option key={subPhase} value={subPhase}>
+                  {subPhase}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="lg:col-span-2">
@@ -146,22 +182,24 @@ export function MatchManager({
               <tr className="text-left text-xs uppercase tracking-[0.2em] text-muted">
                 <th className="px-4 py-4 font-medium">Jogo</th>
                 <th className="px-4 py-4 font-medium">Fase</th>
+                <th className="px-4 py-4 font-medium">Sub-fase</th>
                 <th className="px-4 py-4 font-medium">Data</th>
                 <th className="px-4 py-4 font-medium text-right">Acao</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
-              {upcomingMatches.length === 0 ? (
+              {managedMatches.length === 0 ? (
                 <tr className="bg-panel/40 text-sm">
-                  <td className="px-4 py-5 text-muted" colSpan={4}>
-                    Nenhum jogo futuro cadastrado.
+                  <td className="px-4 py-5 text-muted" colSpan={5}>
+                    Nenhum jogo cadastrado.
                   </td>
                 </tr>
               ) : (
-                upcomingMatches.map((match) => (
+                managedMatches.map((match) => (
                   <tr key={match.id} className="bg-panel/40 text-sm">
                     <td className="px-4 py-4 text-ink">{match.label}</td>
-                    <td className="px-4 py-4 text-muted">{match.stage}</td>
+                    <td className="px-4 py-4 text-muted">{match.tournament_phase}</td>
+                    <td className="px-4 py-4 text-muted">{match.sub_phase}</td>
                     <td className="px-4 py-4 text-muted">{formatDateTime(match.kickoff_at)}</td>
                     <td className="px-4 py-4 text-right">
                       <button
