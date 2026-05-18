@@ -74,6 +74,14 @@ export function createBet(token, betPayload) {
   });
 }
 
+export function updateBet(token, targetBetId, betPayload) {
+  return request(`/me/bets/${targetBetId}`, {
+    method: "PUT",
+    token,
+    body: betPayload,
+  });
+}
+
 export function getAdminDashboard(token) {
   return request("/admin/dashboard", { token });
 }
@@ -93,11 +101,14 @@ export function deleteMatch(token, targetMatchId) {
   });
 }
 
-export function updatePaymentStatus(token, targetUserId, paid) {
+export function updatePaymentStatus(token, targetUserId, statusPayload) {
+  const body =
+    typeof statusPayload === "boolean" ? { paid: statusPayload } : statusPayload;
+
   return request(`/admin/users/${targetUserId}/payment`, {
     method: "POST",
     token,
-    body: { paid },
+    body,
   });
 }
 

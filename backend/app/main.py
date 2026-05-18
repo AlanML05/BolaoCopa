@@ -19,8 +19,11 @@ BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
 
-USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou"
-MATCH_COLUMNS = "id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, placar_b, finalizado"
+USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool"
+MATCH_COLUMNS = (
+    "id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase, "
+    "estadio, placar_a, placar_b, finalizado"
+)
 BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, created_at"
 
 
@@ -65,15 +68,23 @@ class CreateBetRequest(BaseModel):
     predicted_away_score: int = Field(ge=0, le=20)
 
 
+class UpdateBetRequest(BaseModel):
+    predicted_home_score: int = Field(ge=0, le=20)
+    predicted_away_score: int = Field(ge=0, le=20)
+
+
 class CreateMatchRequest(BaseModel):
     home_team: str = Field(max_length=80)
     away_team: str = Field(max_length=80)
     match_date: datetime
-    group_name: str = Field(max_length=80)
+    tournament_phase: str = Field(max_length=40)
+    sub_phase: str = Field(max_length=80)
 
 
 class PaymentUpdateRequest(BaseModel):
     paid: bool | None = None
+    pagou: bool | None = None
+    is_paid_pool: bool | None = None
 
 
 class MatchResultUpdateRequest(BaseModel):
@@ -112,6 +123,50 @@ def normalize_text_field(value: str) -> str:
     return " ".join(value.strip().split())
 
 
+def normalize_tournament_phase(value: str) -> str:
+    normalized = normalize_text_field(value)
+    allowed_phases = {
+        "fase de grupos": "Fase de Grupos",
+        "fase mata-mata": "Fase Mata-Mata",
+    }
+    canonical_phase = allowed_phases.get(normalized.casefold())
+    if canonical_phase is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fase invalida. Use Fase de Grupos ou Fase Mata-Mata.",
+        )
+    return canonical_phase
+
+
+def resolve_match_stage_and_group(tournament_phase: str, sub_phase: str) -> tuple[str, str, str, str]:
+    canonical_phase = normalize_tournament_phase(tournament_phase)
+    canonical_sub_phase = normalize_text_field(sub_phase)
+
+    if not canonical_sub_phase:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe a sub-fase da partida.",
+        )
+
+    if canonical_phase == "Fase de Grupos":
+        allowed_groups = {f"Grupo {letter}" for letter in "ABCDEFGHIJKL"}
+        if canonical_sub_phase not in allowed_groups:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sub-fase invalida para fase de grupos.",
+            )
+        group_code = canonical_sub_phase.split()[-1]
+        return canonical_sub_phase, group_code, canonical_phase, canonical_sub_phase
+
+    allowed_knockout = {"Oitavas", "Quartas", "Semifinal", "Terceiro Lugar", "Final"}
+    if canonical_sub_phase not in allowed_knockout:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sub-fase invalida para mata-mata.",
+        )
+    return canonical_sub_phase, "Mata-Mata", canonical_phase, canonical_sub_phase
+
+
 def resolve_phase(fase: str, grupo: str | None) -> str:
     normalized_stage = fase.strip().lower()
     normalized_group = (grupo or "").strip().lower()
@@ -133,11 +188,16 @@ def normalize_user(row: dict[str, Any]) -> dict[str, Any]:
         "role": "admin" if is_admin else "user",
         "department": row.get("department") or "",
         "paid": bool(row["pagou"]),
+        "is_paid_pool": bool(row["is_paid_pool"]),
     }
 
 
 def normalize_match(row: dict[str, Any]) -> dict[str, Any]:
-    phase = resolve_phase(row["fase"], row.get("grupo"))
+    tournament_phase = row.get("tournament_phase") or (
+        "Fase de Grupos" if resolve_phase(row["fase"], row.get("grupo")) == "group" else "Fase Mata-Mata"
+    )
+    sub_phase = row.get("sub_phase") or row["fase"]
+    phase = "group" if tournament_phase == "Fase de Grupos" else "knockout"
     return {
         "id": str(row["id"]),
         "stage": row["fase"],
@@ -145,6 +205,8 @@ def normalize_match(row: dict[str, Any]) -> dict[str, Any]:
         "grupo": row.get("grupo"),
         "phase": phase,
         "phase_label": "Fase de Grupos" if phase == "group" else "Mata-Mata",
+        "tournament_phase": tournament_phase,
+        "sub_phase": sub_phase,
         "home_team": row["time_a"],
         "away_team": row["time_b"],
         "kickoff_at": db_datetime_to_iso(row["data_hora"]),
@@ -284,6 +346,24 @@ def fetch_existing_bet(user_id: str, match_id: str) -> dict[str, Any] | None:
     return None if row is None else normalize_bet(row)
 
 
+def get_bet_for_user(bet_id: str, user_id: str) -> dict[str, Any]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {BET_COLUMNS}
+            FROM bets
+            WHERE id = %s AND user_id = %s
+            LIMIT 1
+            """,
+            (bet_id, user_id),
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Palpite nao encontrado.")
+    return normalize_bet(row)
+
+
 def count_bets_by_match(match_id: str) -> int:
     with db_cursor() as cursor:
         cursor.execute(
@@ -331,6 +411,7 @@ def serialize_user(user: dict[str, Any]) -> dict[str, Any]:
         "role": user["role"],
         "department": user["department"],
         "paid": user["paid"],
+        "is_paid_pool": user["is_paid_pool"],
     }
 
 
@@ -346,6 +427,7 @@ def serialize_authenticated_user(user: dict[str, Any]) -> dict[str, Any]:
         "department": user["department"],
         "paid": user["paid"],
         "pagou": user["paid"],
+        "is_paid_pool": user["is_paid_pool"],
         "is_admin": is_admin,
     }
 
@@ -417,6 +499,22 @@ def get_betting_closed_reason(
     return None
 
 
+def get_bet_edit_closed_reason(
+    match: dict[str, Any],
+    reference_time: datetime | None = None,
+) -> str | None:
+    now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
+    kickoff_at = parse_datetime(match["kickoff_at"])
+
+    if match["status"] != "scheduled" or kickoff_at <= now:
+        return "Edicao encerrada."
+
+    if now >= get_betting_closes_at(match):
+        return f"Edicao encerrada: bloqueio de {BET_LOCK_MINUTES} minutos antes do jogo."
+
+    return None
+
+
 def is_match_available_for_result_entry(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
     if is_match_finished(match):
         return True
@@ -431,26 +529,6 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     if user is not None and verify_password(password, user["password_hash"]):
         return user
     return None
-
-
-def resolve_match_stage_and_group(group_name: str) -> tuple[str, str]:
-    normalized_group_name = normalize_text_field(group_name)
-    if not normalized_group_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Informe a fase ou grupo da partida.",
-        )
-
-    if normalized_group_name.casefold().startswith("grupo"):
-        group_parts = normalized_group_name.split()
-        group_code = group_parts[-1].upper() if len(group_parts) > 1 else normalized_group_name
-        return normalized_group_name, group_code
-
-    if len(normalized_group_name) == 1 and normalized_group_name.isalpha():
-        group_code = normalized_group_name.upper()
-        return f"Grupo {group_code}", group_code
-
-    return normalized_group_name, "Mata-Mata"
 
 
 def get_outcome(home_score: int, away_score: int) -> OUTCOME:
@@ -520,7 +598,8 @@ def build_ranking(
             "name": user["name"],
             "department": user["department"],
             "paid": user["paid"],
-            "eligible_for_prize": user["paid"],
+            "is_paid_pool": user["is_paid_pool"],
+            "eligible_for_prize": user["is_paid_pool"],
             "total_points": 0,
             "exact_hits": 0,
             "draw_tendency_hits": 0,
@@ -587,12 +666,16 @@ def build_ranking(
     for index, entry in enumerate(ranking, start=1):
         entry["rank"] = index
 
-    prize_eligible = [entry for entry in ranking if entry["eligible_for_prize"]]
-    total_collected = len(prize_eligible) * BET_PRICE
+    paid_ranking = [{**entry} for entry in ranking if entry["is_paid_pool"]]
+    for index, entry in enumerate(paid_ranking, start=1):
+        entry["rank"] = index
+
+    payment_confirmed = [entry for entry in paid_ranking if entry["paid"]]
+    total_collected = len(payment_confirmed) * BET_PRICE
     payout_breakdown = []
 
     for position, percentage in PRIZE_DISTRIBUTION.items():
-        winner = prize_eligible[position - 1] if len(prize_eligible) >= position else None
+        winner = paid_ranking[position - 1] if len(paid_ranking) >= position else None
         payout_breakdown.append(
             {
                 "position": position,
@@ -606,6 +689,7 @@ def build_ranking(
     return {
         "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
         "ranking": ranking,
+        "paid_ranking": paid_ranking,
         "bets": detailed_bets,
         "summary": {
             "finished_matches": finished_matches,
@@ -615,7 +699,8 @@ def build_ranking(
         },
         "prize_pool": {
             "entry_price": BET_PRICE,
-            "paid_participants": len(prize_eligible),
+            "paid_participants": len(payment_confirmed),
+            "paid_pool_participants": len(paid_ranking),
             "total_collected": total_collected,
             "distribution": payout_breakdown,
         },
@@ -632,6 +717,8 @@ def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = N
         "grupo": match.get("grupo"),
         "phase": match.get("phase", "group"),
         "phase_label": match.get("phase_label", "Fase de Grupos"),
+        "tournament_phase": match["tournament_phase"],
+        "sub_phase": match["sub_phase"],
         "home_team": match["home_team"],
         "away_team": match["away_team"],
         "kickoff_at": match["kickoff_at"],
@@ -716,6 +803,7 @@ def root() -> dict[str, Any]:
             "/login",
             "/me/bets-overview",
             "/me/bets",
+            "/me/bets/{bet_id}",
             "/signup",
             "/admin/dashboard",
             "/admin/matches",
@@ -774,8 +862,8 @@ def signup(payload: SignUpRequest) -> dict[str, Any]:
         with db_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, 0)
+                INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool)
+                VALUES (%s, %s, %s, %s, %s, 0, %s, 0, 0)
                 """,
                 (
                     user_id,
@@ -891,7 +979,7 @@ def create_bet(
     if existing_bet:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Palpite ja registrado. O MVP nao permite edicao apos salvar.",
+            detail="Palpite ja registrado. Edite pelo historico antes do bloqueio do jogo.",
         )
 
     created_at = now_for_database()
@@ -916,7 +1004,7 @@ def create_bet(
     except IntegrityError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Palpite ja registrado. O MVP nao permite edicao apos salvar.",
+            detail="Palpite ja registrado. Edite pelo historico antes do bloqueio do jogo.",
         ) from error
 
     new_bet = {
@@ -933,6 +1021,53 @@ def create_bet(
     }
 
 
+@app.put("/me/bets/{bet_id}")
+def update_bet(
+    bet_id: str,
+    payload: UpdateBetRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    if current_user["role"] != "user":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuarios comuns podem editar palpites.")
+
+    bet = get_bet_for_user(bet_id, current_user["id"])
+    match = get_match(bet["match_id"])
+    betting_closed_reason = get_bet_edit_closed_reason(match)
+    if betting_closed_reason is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=betting_closed_reason,
+        )
+
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            UPDATE bets
+            SET palpite_a = %s,
+                palpite_b = %s
+            WHERE id = %s AND user_id = %s
+            """,
+            (
+                payload.predicted_home_score,
+                payload.predicted_away_score,
+                bet_id,
+                current_user["id"],
+            ),
+        )
+
+    updated_bet = get_bet_for_user(bet_id, current_user["id"])
+    return {
+        "message": "Palpite atualizado com sucesso.",
+        "bet": {
+            "id": updated_bet["id"],
+            "match_id": updated_bet["match_id"],
+            "predicted_home_score": updated_bet["predicted_home_score"],
+            "predicted_away_score": updated_bet["predicted_away_score"],
+            "created_at": updated_bet["created_at"],
+        },
+    }
+
+
 @app.get("/admin/dashboard")
 def get_admin_dashboard(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     return build_admin_dashboard_payload()
@@ -945,7 +1080,10 @@ def create_match(
 ) -> dict[str, Any]:
     home_team = normalize_text_field(payload.home_team)
     away_team = normalize_text_field(payload.away_team)
-    stage, group = resolve_match_stage_and_group(payload.group_name)
+    stage, group, tournament_phase, sub_phase = resolve_match_stage_and_group(
+        payload.tournament_phase,
+        payload.sub_phase,
+    )
 
     if not home_team or not away_team:
         raise HTTPException(
@@ -965,10 +1103,13 @@ def create_match(
         new_match_id = next_match_id(cursor)
         cursor.execute(
             """
-            INSERT INTO matches (id, time_a, time_b, data_hora, fase, grupo, estadio, placar_a, placar_b, finalizado)
-            VALUES (%s, %s, %s, %s, %s, %s, '', NULL, NULL, 0)
+            INSERT INTO matches (
+                id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase,
+                estadio, placar_a, placar_b, finalizado
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '', NULL, NULL, 0)
             """,
-            (new_match_id, home_team, away_team, kickoff_at, stage, group),
+            (new_match_id, home_team, away_team, kickoff_at, stage, group, tournament_phase, sub_phase),
         )
 
     created_match = get_match(new_match_id)
@@ -1017,20 +1158,29 @@ def update_payment_status(
     if user["role"] != "user":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pagamento so pode ser alterado para participantes.")
 
-    new_paid = (not user["paid"]) if payload.paid is None else payload.paid
+    payload_paid = payload.paid if payload.paid is not None else payload.pagou
+    new_is_paid_pool = user["is_paid_pool"] if payload.is_paid_pool is None else payload.is_paid_pool
+    new_paid = (not user["paid"]) if payload_paid is None and payload.is_paid_pool is None else (
+        user["paid"] if payload_paid is None else payload_paid
+    )
+
+    if not new_is_paid_pool:
+        new_paid = False
+
     with db_cursor(commit=True) as cursor:
         cursor.execute(
             """
             UPDATE users
-            SET pagou = %s
+            SET is_paid_pool = %s,
+                pagou = %s
             WHERE id = %s
             """,
-            (new_paid, user_id),
+            (new_is_paid_pool, new_paid, user_id),
         )
 
     updated_user = get_user(user_id)
     return {
-        "message": "Status de pagamento atualizado.",
+        "message": "Status financeiro atualizado.",
         "user": serialize_user(updated_user),
         "dashboard": build_admin_dashboard_payload(),
     }

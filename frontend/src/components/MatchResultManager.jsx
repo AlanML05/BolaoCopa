@@ -1,4 +1,21 @@
+import { useMemo, useState } from "react";
+
 import { formatDateTime, formatScore } from "../services/formatters";
+
+const ALL_PHASES = "all-phases";
+const ALL_SUB_PHASES = "all-sub-phases";
+
+function uniqueValues(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getTournamentPhase(match) {
+  return match.tournament_phase ?? match.phase_label ?? "Fase de Grupos";
+}
+
+function getSubPhase(match) {
+  return match.sub_phase ?? match.stage;
+}
 
 export function MatchResultManager({
   matches,
@@ -7,6 +24,39 @@ export function MatchResultManager({
   onFieldChange,
   onSave,
 }) {
+  const [selectedPhase, setSelectedPhase] = useState(ALL_PHASES);
+  const [selectedSubPhase, setSelectedSubPhase] = useState(ALL_SUB_PHASES);
+
+  const phaseOptions = useMemo(
+    () => uniqueValues(matches.map((match) => getTournamentPhase(match))),
+    [matches],
+  );
+
+  const subPhaseOptions = useMemo(
+    () =>
+      uniqueValues(
+        matches
+          .filter((match) => selectedPhase === ALL_PHASES || getTournamentPhase(match) === selectedPhase)
+          .map((match) => getSubPhase(match)),
+      ),
+    [matches, selectedPhase],
+  );
+
+  const filteredMatches = useMemo(
+    () =>
+      matches.filter((match) => {
+        const phaseMatches = selectedPhase === ALL_PHASES || getTournamentPhase(match) === selectedPhase;
+        const subPhaseMatches = selectedSubPhase === ALL_SUB_PHASES || getSubPhase(match) === selectedSubPhase;
+        return phaseMatches && subPhaseMatches;
+      }),
+    [matches, selectedPhase, selectedSubPhase],
+  );
+
+  function handlePhaseChange(value) {
+    setSelectedPhase(value);
+    setSelectedSubPhase(ALL_SUB_PHASES);
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -20,12 +70,58 @@ export function MatchResultManager({
         </p>
       </div>
 
+      <div className="panel-strong grid gap-4 px-5 py-5 sm:grid-cols-2">
+        <div>
+          <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
+            Fase
+          </label>
+          <select
+            className="field"
+            value={selectedPhase}
+            onChange={(event) => handlePhaseChange(event.target.value)}
+          >
+            <option value={ALL_PHASES}>Todas as fases</option>
+            {phaseOptions.map((phase) => (
+              <option key={phase} value={phase}>
+                {phase}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
+            Sub-fase
+          </label>
+          <select
+            className="field"
+            value={selectedSubPhase}
+            onChange={(event) => setSelectedSubPhase(event.target.value)}
+          >
+            <option value={ALL_SUB_PHASES}>Todas as sub-fases</option>
+            {subPhaseOptions.map((subPhase) => (
+              <option key={subPhase} value={subPhase}>
+                {subPhase}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <div className="grid gap-4 2xl:grid-cols-2">
-        {matches.map((match) => (
+        {filteredMatches.length === 0 ? (
+          <section className="panel px-5 py-6 text-sm text-muted">
+            Nenhum jogo encontrado para os filtros selecionados.
+          </section>
+        ) : null}
+
+        {filteredMatches.map((match) => (
           <article key={match.id} className="panel-strong px-5 py-5 transition hover:border-accent/30">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="eyebrow">{match.stage}</p>
+                <p className="eyebrow">
+                  {getTournamentPhase(match)} - {getSubPhase(match)}
+                </p>
                 <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
                   {match.label}
                 </h4>

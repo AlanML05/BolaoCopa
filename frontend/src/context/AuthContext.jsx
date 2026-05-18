@@ -24,6 +24,7 @@ function normalizeUser(rawUser, accessToken) {
     role,
     paid,
     pagou: paid,
+    is_paid_pool: Boolean(rawUser.is_paid_pool ?? false),
     is_admin: Boolean(rawUser.is_admin ?? role === "admin"),
     accessToken,
   };
