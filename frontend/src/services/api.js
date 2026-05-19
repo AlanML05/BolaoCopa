@@ -82,6 +82,10 @@ export function updateBet(token, targetBetId, betPayload) {
   });
 }
 
+export function getStandings(token) {
+  return request("/standings", { token });
+}
+
 export function getAdminDashboard(token) {
   return request("/admin/dashboard", { token });
 }

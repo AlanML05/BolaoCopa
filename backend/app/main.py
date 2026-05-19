@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cmp_to_key
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -7,8 +8,9 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from pymysql.err import IntegrityError
+from pymysql.err import IntegrityError, MySQLError, OperationalError
 
 from .db import db_cursor
 from .security import create_access_token, decode_access_token, get_password_hash, verify_password
@@ -18,6 +20,7 @@ PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
 BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
+GROUP_LABELS = [f"Grupo {letter}" for letter in "ABCDEFGHIJKL"]
 
 USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool"
 MATCH_COLUMNS = (
@@ -52,6 +55,30 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(OperationalError)
+def handle_database_connection_error(_, __):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Banco de dados indisponivel. Tente novamente em instantes."},
+    )
+
+
+@app.exception_handler(IntegrityError)
+def handle_integrity_error(_, __):
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Registro duplicado ou conflito de dados."},
+    )
+
+
+@app.exception_handler(MySQLError)
+def handle_database_error(_, __):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro ao acessar o banco de dados."},
+    )
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -73,12 +100,13 @@ class UpdateBetRequest(BaseModel):
     predicted_away_score: int = Field(ge=0, le=20)
 
 
-class CreateMatchRequest(BaseModel):
+class UpdateMatchRequest(BaseModel):
     home_team: str = Field(max_length=80)
     away_team: str = Field(max_length=80)
     match_date: datetime
     tournament_phase: str = Field(max_length=40)
     sub_phase: str = Field(max_length=80)
+    stadium: str = Field(default="", max_length=160)
 
 
 class PaymentUpdateRequest(BaseModel):
@@ -138,6 +166,22 @@ def normalize_tournament_phase(value: str) -> str:
     return canonical_phase
 
 
+def normalize_knockout_sub_phase(value: str) -> str | None:
+    normalized_key = normalize_text_field(value).casefold().replace("º", "o")
+    allowed_knockout = {
+        "16-avos de final": "16-avos de final",
+        "oitavas de final": "Oitavas de final",
+        "oitavas": "Oitavas de final",
+        "quartas de final": "Quartas de final",
+        "quartas": "Quartas de final",
+        "semifinal": "Semifinal",
+        "disputa do 3o lugar": "Disputa do 3º Lugar",
+        "terceiro lugar": "Disputa do 3º Lugar",
+        "final": "Final",
+    }
+    return allowed_knockout.get(normalized_key)
+
+
 def resolve_match_stage_and_group(tournament_phase: str, sub_phase: str) -> tuple[str, str, str, str]:
     canonical_phase = normalize_tournament_phase(tournament_phase)
     canonical_sub_phase = normalize_text_field(sub_phase)
@@ -158,13 +202,13 @@ def resolve_match_stage_and_group(tournament_phase: str, sub_phase: str) -> tupl
         group_code = canonical_sub_phase.split()[-1]
         return canonical_sub_phase, group_code, canonical_phase, canonical_sub_phase
 
-    allowed_knockout = {"Oitavas", "Quartas", "Semifinal", "Terceiro Lugar", "Final"}
-    if canonical_sub_phase not in allowed_knockout:
+    canonical_knockout_sub_phase = normalize_knockout_sub_phase(canonical_sub_phase)
+    if canonical_knockout_sub_phase is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sub-fase invalida para mata-mata.",
         )
-    return canonical_sub_phase, "Mata-Mata", canonical_phase, canonical_sub_phase
+    return canonical_knockout_sub_phase, "Mata-Mata", canonical_phase, canonical_knockout_sub_phase
 
 
 def resolve_phase(fase: str, grupo: str | None) -> str:
@@ -234,7 +278,7 @@ def fetch_user_row_by_login(normalized_username: str) -> dict[str, Any] | None:
             f"""
             SELECT {USER_COLUMNS}
             FROM users
-            WHERE LOWER(username) = %s OR LOWER(email) = %s
+            WHERE username = %s OR email = %s
             LIMIT 1
             """,
             (normalized_username, normalized_username),
@@ -284,6 +328,20 @@ def fetch_all_matches() -> list[dict[str, Any]]:
             FROM matches
             ORDER BY data_hora, id
             """
+        )
+        return [normalize_match(row) for row in cursor.fetchall()]
+
+
+def fetch_group_stage_matches() -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {MATCH_COLUMNS}
+            FROM matches
+            WHERE tournament_phase = %s
+            ORDER BY grupo, data_hora, id
+            """,
+            ("Fase de Grupos",),
         )
         return [normalize_match(row) for row in cursor.fetchall()]
 
@@ -448,6 +506,18 @@ def is_knockout_match(match: dict[str, Any]) -> bool:
     return match.get("phase") == "knockout"
 
 
+PLACEHOLDER_TEAM_MARKERS = ("grupo", "jogo", "vencedor", "perdedor")
+
+
+def has_placeholder_team(match: dict[str, Any]) -> bool:
+    team_names = (match.get("home_team") or "", match.get("away_team") or "")
+    return any(
+        marker in team_name.casefold()
+        for team_name in team_names
+        for marker in PLACEHOLDER_TEAM_MARKERS
+    )
+
+
 def is_group_stage_complete(matches: list[dict[str, Any]] | None = None) -> bool:
     loaded_matches = fetch_all_matches() if matches is None else matches
     group_matches = [match for match in loaded_matches if is_group_stage_match(match)]
@@ -468,6 +538,9 @@ def is_match_open_for_bet(
     reference_time: datetime | None = None,
     group_stage_complete: bool | None = None,
 ) -> bool:
+    if has_placeholder_team(match):
+        return False
+
     if is_knockout_match(match) and not (
         is_group_stage_complete() if group_stage_complete is None else group_stage_complete
     ):
@@ -482,6 +555,9 @@ def get_betting_closed_reason(
     reference_time: datetime | None = None,
     group_stage_complete: bool | None = None,
 ) -> str | None:
+    if has_placeholder_team(match):
+        return "Aguardando definição dos confrontos."
+
     if is_knockout_match(match) and not (
         is_group_stage_complete() if group_stage_complete is None else group_stage_complete
     ):
@@ -503,6 +579,9 @@ def get_bet_edit_closed_reason(
     match: dict[str, Any],
     reference_time: datetime | None = None,
 ) -> str | None:
+    if has_placeholder_team(match):
+        return "Aguardando definição dos confrontos."
+
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
     kickoff_at = parse_datetime(match["kickoff_at"])
 
@@ -707,6 +786,230 @@ def build_ranking(
     }
 
 
+def get_group_label_for_match(match: dict[str, Any]) -> str | None:
+    sub_phase = match.get("sub_phase") or match.get("stage") or ""
+    if sub_phase in GROUP_LABELS:
+        return sub_phase
+
+    group = (match.get("group") or match.get("grupo") or "").strip()
+    if len(group) == 1 and group.isalpha():
+        return f"Grupo {group.upper()}"
+    if group in GROUP_LABELS:
+        return group
+
+    return None
+
+
+def create_empty_standing(team: str) -> dict[str, Any]:
+    return {
+        "team": team,
+        "played": 0,
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+        "goals_for": 0,
+        "goals_against": 0,
+        "goal_difference": 0,
+        "points": 0,
+    }
+
+
+def has_match_score(match: dict[str, Any]) -> bool:
+    return match["home_score"] is not None and match["away_score"] is not None
+
+
+def apply_group_match_result(
+    home_standing: dict[str, Any],
+    away_standing: dict[str, Any],
+    home_score: int,
+    away_score: int,
+) -> None:
+    home_standing["played"] += 1
+    away_standing["played"] += 1
+    home_standing["goals_for"] += home_score
+    home_standing["goals_against"] += away_score
+    away_standing["goals_for"] += away_score
+    away_standing["goals_against"] += home_score
+    home_standing["goal_difference"] = home_standing["goals_for"] - home_standing["goals_against"]
+    away_standing["goal_difference"] = away_standing["goals_for"] - away_standing["goals_against"]
+
+    if home_score > away_score:
+        home_standing["wins"] += 1
+        away_standing["losses"] += 1
+        home_standing["points"] += 3
+        return
+
+    if away_score > home_score:
+        away_standing["wins"] += 1
+        home_standing["losses"] += 1
+        away_standing["points"] += 3
+        return
+
+    home_standing["draws"] += 1
+    away_standing["draws"] += 1
+    home_standing["points"] += 1
+    away_standing["points"] += 1
+
+
+def compare_basic_standing(first: dict[str, Any], second: dict[str, Any]) -> int:
+    for key in ("points", "goal_difference", "goals_for"):
+        if first[key] != second[key]:
+            return -1 if first[key] > second[key] else 1
+    return 0
+
+
+def get_head_to_head_winner(
+    first_team: str,
+    second_team: str,
+    group_matches: list[dict[str, Any]],
+) -> str | None:
+    first_points = 0
+    second_points = 0
+    direct_match_found = False
+
+    for match in group_matches:
+        if not has_match_score(match):
+            continue
+
+        home_team = match["home_team"]
+        away_team = match["away_team"]
+        if {home_team, away_team} != {first_team, second_team}:
+            continue
+
+        direct_match_found = True
+        home_score = int(match["home_score"])
+        away_score = int(match["away_score"])
+        if home_score == away_score:
+            first_points += 1
+            second_points += 1
+            continue
+
+        winner = home_team if home_score > away_score else away_team
+        if winner == first_team:
+            first_points += 3
+        else:
+            second_points += 3
+
+    if not direct_match_found or first_points == second_points:
+        return None
+    return first_team if first_points > second_points else second_team
+
+
+def compare_group_standings(
+    group_matches: list[dict[str, Any]],
+    group_teams: list[dict[str, Any]],
+    first: dict[str, Any],
+    second: dict[str, Any],
+) -> int:
+    if first["team"].casefold() == second["team"].casefold():
+        return 0
+
+    basic_comparison = compare_basic_standing(first, second)
+    if basic_comparison != 0:
+        return basic_comparison
+
+    tied_on_basic_criteria = [
+        team
+        for team in group_teams
+        if team["points"] == first["points"]
+        and team["goal_difference"] == first["goal_difference"]
+        and team["goals_for"] == first["goals_for"]
+    ]
+    if len(tied_on_basic_criteria) == 2:
+        head_to_head_winner = get_head_to_head_winner(first["team"], second["team"], group_matches)
+        if head_to_head_winner == first["team"]:
+            return -1
+        if head_to_head_winner == second["team"]:
+            return 1
+
+    return -1 if first["team"].casefold() < second["team"].casefold() else 1
+
+
+def compare_third_place_standings(first: dict[str, Any], second: dict[str, Any]) -> int:
+    basic_comparison = compare_basic_standing(first, second)
+    if basic_comparison != 0:
+        return basic_comparison
+    if first["team"].casefold() == second["team"].casefold():
+        return 0
+    return -1 if first["team"].casefold() < second["team"].casefold() else 1
+
+
+def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    loaded_matches = fetch_group_stage_matches() if matches is None else matches
+    grouped: dict[str, dict[str, dict[str, Any]]] = {group: {} for group in GROUP_LABELS}
+    matches_by_group: dict[str, list[dict[str, Any]]] = {group: [] for group in GROUP_LABELS}
+
+    for match in loaded_matches:
+        group_label = get_group_label_for_match(match)
+        if group_label not in grouped:
+            continue
+
+        matches_by_group[group_label].append(match)
+        home_team = match["home_team"]
+        away_team = match["away_team"]
+        grouped[group_label].setdefault(home_team, create_empty_standing(home_team))
+        grouped[group_label].setdefault(away_team, create_empty_standing(away_team))
+
+        if not has_match_score(match):
+            continue
+
+        apply_group_match_result(
+            grouped[group_label][home_team],
+            grouped[group_label][away_team],
+            int(match["home_score"]),
+            int(match["away_score"]),
+        )
+
+    groups = []
+    for group_label in GROUP_LABELS:
+        group_teams = list(grouped[group_label].values())
+        teams = sorted(
+            group_teams,
+            key=cmp_to_key(
+                lambda first, second: compare_group_standings(
+                    matches_by_group[group_label],
+                    group_teams,
+                    first,
+                    second,
+                )
+            ),
+        )
+
+        for index, team in enumerate(teams, start=1):
+            team["rank"] = index
+            team["qualified_direct"] = index <= 2
+
+        groups.append(
+            {
+                "group": group_label,
+                "teams": teams,
+            }
+        )
+
+    best_thirds = []
+    for group in groups:
+        if len(group["teams"]) < 3:
+            continue
+
+        third_place = {**group["teams"][2]}
+        third_place["group"] = group["group"]
+        third_place["group_rank"] = 3
+        third_place.pop("qualified_direct", None)
+        best_thirds.append(third_place)
+
+    best_thirds = sorted(best_thirds, key=cmp_to_key(compare_third_place_standings))
+    for index, team in enumerate(best_thirds, start=1):
+        team["rank"] = index
+        team["qualified_third"] = index <= 8
+
+    return {
+        "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
+        "tie_breakers": ["points", "goal_difference", "goals_for", "head_to_head"],
+        "groups": groups,
+        "best_thirds": best_thirds,
+    }
+
+
 def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = None) -> dict[str, Any]:
     betting_closes_at = get_betting_closes_at(match)
     return {
@@ -804,9 +1107,10 @@ def root() -> dict[str, Any]:
             "/me/bets-overview",
             "/me/bets",
             "/me/bets/{bet_id}",
+            "/standings",
             "/signup",
             "/admin/dashboard",
-            "/admin/matches",
+            "/admin/matches/{match_id}",
             "/admin/matches/{match_id}/result",
             "/admin/users/{user_id}/payment",
         ],
@@ -824,6 +1128,11 @@ def login(payload: LoginRequest) -> dict[str, Any]:
             "user": serialize_authenticated_user(user),
         }
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas.")
+
+
+@app.get("/standings")
+def get_standings(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return build_group_standings()
 
 
 @app.post("/signup", status_code=status.HTTP_201_CREATED)
@@ -904,8 +1213,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
 
     for match in matches:
         existing_bet = bets_by_match.get(match["id"])
-        if not is_match_upcoming(match):
-            continue
 
         match_payload = serialize_match(match, group_stage_complete=group_stage_complete)
         match_payload["existing_bet"] = None if existing_bet is None else {
@@ -1073,13 +1380,17 @@ def get_admin_dashboard(_: dict[str, Any] = Depends(require_admin)) -> dict[str,
     return build_admin_dashboard_payload()
 
 
-@app.post("/admin/matches", status_code=status.HTTP_201_CREATED)
-def create_match(
-    payload: CreateMatchRequest,
+@app.put("/admin/matches/{match_id}")
+def update_match(
+    match_id: str,
+    payload: UpdateMatchRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
+    get_match(match_id)
+
     home_team = normalize_text_field(payload.home_team)
     away_team = normalize_text_field(payload.away_team)
+    stadium_name = normalize_text_field(payload.stadium) if payload.stadium else ""
     stage, group, tournament_phase, sub_phase = resolve_match_stage_and_group(
         payload.tournament_phase,
         payload.sub_phase,
@@ -1100,22 +1411,36 @@ def create_match(
     kickoff_at = coerce_datetime(payload.match_date).replace(tzinfo=None, microsecond=0)
 
     with db_cursor(commit=True) as cursor:
-        new_match_id = next_match_id(cursor)
         cursor.execute(
             """
-            INSERT INTO matches (
-                id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase,
-                estadio, placar_a, placar_b, finalizado
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '', NULL, NULL, 0)
+            UPDATE matches
+            SET time_a = %s,
+                time_b = %s,
+                data_hora = %s,
+                fase = %s,
+                grupo = %s,
+                tournament_phase = %s,
+                sub_phase = %s,
+                estadio = %s
+            WHERE id = %s
             """,
-            (new_match_id, home_team, away_team, kickoff_at, stage, group, tournament_phase, sub_phase),
+            (
+                home_team,
+                away_team,
+                kickoff_at,
+                stage,
+                group,
+                tournament_phase,
+                sub_phase,
+                stadium_name,
+                match_id,
+            ),
         )
 
-    created_match = get_match(new_match_id)
+    updated_match = get_match(match_id)
     return {
-        "message": "Partida criada com sucesso.",
-        "match": serialize_match(created_match),
+        "message": "Partida atualizada com sucesso.",
+        "match": serialize_match(updated_match),
         "dashboard": build_admin_dashboard_payload(),
     }
 
