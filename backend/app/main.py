@@ -8,8 +8,9 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from pymysql.err import IntegrityError
+from pymysql.err import IntegrityError, MySQLError, OperationalError
 
 from .db import db_cursor
 from .security import create_access_token, decode_access_token, get_password_hash, verify_password
@@ -54,6 +55,30 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(OperationalError)
+def handle_database_connection_error(_, __):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Banco de dados indisponivel. Tente novamente em instantes."},
+    )
+
+
+@app.exception_handler(IntegrityError)
+def handle_integrity_error(_, __):
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Registro duplicado ou conflito de dados."},
+    )
+
+
+@app.exception_handler(MySQLError)
+def handle_database_error(_, __):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erro ao acessar o banco de dados."},
+    )
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -75,12 +100,13 @@ class UpdateBetRequest(BaseModel):
     predicted_away_score: int = Field(ge=0, le=20)
 
 
-class CreateMatchRequest(BaseModel):
+class UpdateMatchRequest(BaseModel):
     home_team: str = Field(max_length=80)
     away_team: str = Field(max_length=80)
     match_date: datetime
     tournament_phase: str = Field(max_length=40)
     sub_phase: str = Field(max_length=80)
+    stadium: str = Field(default="", max_length=160)
 
 
 class PaymentUpdateRequest(BaseModel):
@@ -252,7 +278,7 @@ def fetch_user_row_by_login(normalized_username: str) -> dict[str, Any] | None:
             f"""
             SELECT {USER_COLUMNS}
             FROM users
-            WHERE LOWER(username) = %s OR LOWER(email) = %s
+            WHERE username = %s OR email = %s
             LIMIT 1
             """,
             (normalized_username, normalized_username),
@@ -480,6 +506,18 @@ def is_knockout_match(match: dict[str, Any]) -> bool:
     return match.get("phase") == "knockout"
 
 
+PLACEHOLDER_TEAM_MARKERS = ("grupo", "jogo", "vencedor", "perdedor")
+
+
+def has_placeholder_team(match: dict[str, Any]) -> bool:
+    team_names = (match.get("home_team") or "", match.get("away_team") or "")
+    return any(
+        marker in team_name.casefold()
+        for team_name in team_names
+        for marker in PLACEHOLDER_TEAM_MARKERS
+    )
+
+
 def is_group_stage_complete(matches: list[dict[str, Any]] | None = None) -> bool:
     loaded_matches = fetch_all_matches() if matches is None else matches
     group_matches = [match for match in loaded_matches if is_group_stage_match(match)]
@@ -500,6 +538,9 @@ def is_match_open_for_bet(
     reference_time: datetime | None = None,
     group_stage_complete: bool | None = None,
 ) -> bool:
+    if has_placeholder_team(match):
+        return False
+
     if is_knockout_match(match) and not (
         is_group_stage_complete() if group_stage_complete is None else group_stage_complete
     ):
@@ -514,6 +555,9 @@ def get_betting_closed_reason(
     reference_time: datetime | None = None,
     group_stage_complete: bool | None = None,
 ) -> str | None:
+    if has_placeholder_team(match):
+        return "Aguardando definição dos confrontos."
+
     if is_knockout_match(match) and not (
         is_group_stage_complete() if group_stage_complete is None else group_stage_complete
     ):
@@ -535,6 +579,9 @@ def get_bet_edit_closed_reason(
     match: dict[str, Any],
     reference_time: datetime | None = None,
 ) -> str | None:
+    if has_placeholder_team(match):
+        return "Aguardando definição dos confrontos."
+
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
     kickoff_at = parse_datetime(match["kickoff_at"])
 
@@ -1063,7 +1110,7 @@ def root() -> dict[str, Any]:
             "/standings",
             "/signup",
             "/admin/dashboard",
-            "/admin/matches",
+            "/admin/matches/{match_id}",
             "/admin/matches/{match_id}/result",
             "/admin/users/{user_id}/payment",
         ],
@@ -1166,8 +1213,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
 
     for match in matches:
         existing_bet = bets_by_match.get(match["id"])
-        if not is_match_upcoming(match):
-            continue
 
         match_payload = serialize_match(match, group_stage_complete=group_stage_complete)
         match_payload["existing_bet"] = None if existing_bet is None else {
@@ -1335,13 +1380,17 @@ def get_admin_dashboard(_: dict[str, Any] = Depends(require_admin)) -> dict[str,
     return build_admin_dashboard_payload()
 
 
-@app.post("/admin/matches", status_code=status.HTTP_201_CREATED)
-def create_match(
-    payload: CreateMatchRequest,
+@app.put("/admin/matches/{match_id}")
+def update_match(
+    match_id: str,
+    payload: UpdateMatchRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
+    get_match(match_id)
+
     home_team = normalize_text_field(payload.home_team)
     away_team = normalize_text_field(payload.away_team)
+    stadium_name = normalize_text_field(payload.stadium) if payload.stadium else ""
     stage, group, tournament_phase, sub_phase = resolve_match_stage_and_group(
         payload.tournament_phase,
         payload.sub_phase,
@@ -1362,22 +1411,36 @@ def create_match(
     kickoff_at = coerce_datetime(payload.match_date).replace(tzinfo=None, microsecond=0)
 
     with db_cursor(commit=True) as cursor:
-        new_match_id = next_match_id(cursor)
         cursor.execute(
             """
-            INSERT INTO matches (
-                id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase,
-                estadio, placar_a, placar_b, finalizado
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '', NULL, NULL, 0)
+            UPDATE matches
+            SET time_a = %s,
+                time_b = %s,
+                data_hora = %s,
+                fase = %s,
+                grupo = %s,
+                tournament_phase = %s,
+                sub_phase = %s,
+                estadio = %s
+            WHERE id = %s
             """,
-            (new_match_id, home_team, away_team, kickoff_at, stage, group, tournament_phase, sub_phase),
+            (
+                home_team,
+                away_team,
+                kickoff_at,
+                stage,
+                group,
+                tournament_phase,
+                sub_phase,
+                stadium_name,
+                match_id,
+            ),
         )
 
-    created_match = get_match(new_match_id)
+    updated_match = get_match(match_id)
     return {
-        "message": "Partida criada com sucesso.",
-        "match": serialize_match(created_match),
+        "message": "Partida atualizada com sucesso.",
+        "match": serialize_match(updated_match),
         "dashboard": build_admin_dashboard_payload(),
     }
 
