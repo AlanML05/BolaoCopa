@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cmp_to_key
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -787,15 +788,100 @@ def apply_group_match_result(
     away_standing["points"] += 1
 
 
+def compare_basic_standing(first: dict[str, Any], second: dict[str, Any]) -> int:
+    for key in ("points", "goal_difference", "goals_for"):
+        if first[key] != second[key]:
+            return -1 if first[key] > second[key] else 1
+    return 0
+
+
+def get_head_to_head_winner(
+    first_team: str,
+    second_team: str,
+    group_matches: list[dict[str, Any]],
+) -> str | None:
+    first_points = 0
+    second_points = 0
+    direct_match_found = False
+
+    for match in group_matches:
+        if not has_match_score(match):
+            continue
+
+        home_team = match["home_team"]
+        away_team = match["away_team"]
+        if {home_team, away_team} != {first_team, second_team}:
+            continue
+
+        direct_match_found = True
+        home_score = int(match["home_score"])
+        away_score = int(match["away_score"])
+        if home_score == away_score:
+            first_points += 1
+            second_points += 1
+            continue
+
+        winner = home_team if home_score > away_score else away_team
+        if winner == first_team:
+            first_points += 3
+        else:
+            second_points += 3
+
+    if not direct_match_found or first_points == second_points:
+        return None
+    return first_team if first_points > second_points else second_team
+
+
+def compare_group_standings(
+    group_matches: list[dict[str, Any]],
+    group_teams: list[dict[str, Any]],
+    first: dict[str, Any],
+    second: dict[str, Any],
+) -> int:
+    if first["team"].casefold() == second["team"].casefold():
+        return 0
+
+    basic_comparison = compare_basic_standing(first, second)
+    if basic_comparison != 0:
+        return basic_comparison
+
+    tied_on_basic_criteria = [
+        team
+        for team in group_teams
+        if team["points"] == first["points"]
+        and team["goal_difference"] == first["goal_difference"]
+        and team["goals_for"] == first["goals_for"]
+    ]
+    if len(tied_on_basic_criteria) == 2:
+        head_to_head_winner = get_head_to_head_winner(first["team"], second["team"], group_matches)
+        if head_to_head_winner == first["team"]:
+            return -1
+        if head_to_head_winner == second["team"]:
+            return 1
+
+    return -1 if first["team"].casefold() < second["team"].casefold() else 1
+
+
+def compare_third_place_standings(first: dict[str, Any], second: dict[str, Any]) -> int:
+    basic_comparison = compare_basic_standing(first, second)
+    if basic_comparison != 0:
+        return basic_comparison
+    if first["team"].casefold() == second["team"].casefold():
+        return 0
+    return -1 if first["team"].casefold() < second["team"].casefold() else 1
+
+
 def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     loaded_matches = fetch_group_stage_matches() if matches is None else matches
     grouped: dict[str, dict[str, dict[str, Any]]] = {group: {} for group in GROUP_LABELS}
+    matches_by_group: dict[str, list[dict[str, Any]]] = {group: [] for group in GROUP_LABELS}
 
     for match in loaded_matches:
         group_label = get_group_label_for_match(match)
         if group_label not in grouped:
             continue
 
+        matches_by_group[group_label].append(match)
         home_team = match["home_team"]
         away_team = match["away_team"]
         grouped[group_label].setdefault(home_team, create_empty_standing(home_team))
@@ -813,13 +899,16 @@ def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[s
 
     groups = []
     for group_label in GROUP_LABELS:
+        group_teams = list(grouped[group_label].values())
         teams = sorted(
-            grouped[group_label].values(),
-            key=lambda item: (
-                -item["points"],
-                -item["goal_difference"],
-                -item["goals_for"],
-                item["team"].casefold(),
+            group_teams,
+            key=cmp_to_key(
+                lambda first, second: compare_group_standings(
+                    matches_by_group[group_label],
+                    group_teams,
+                    first,
+                    second,
+                )
             ),
         )
 
@@ -834,10 +923,27 @@ def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[s
             }
         )
 
+    best_thirds = []
+    for group in groups:
+        if len(group["teams"]) < 3:
+            continue
+
+        third_place = {**group["teams"][2]}
+        third_place["group"] = group["group"]
+        third_place["group_rank"] = 3
+        third_place.pop("qualified_direct", None)
+        best_thirds.append(third_place)
+
+    best_thirds = sorted(best_thirds, key=cmp_to_key(compare_third_place_standings))
+    for index, team in enumerate(best_thirds, start=1):
+        team["rank"] = index
+        team["qualified_third"] = index <= 8
+
     return {
         "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
-        "tie_breakers": ["points", "goal_difference", "goals_for"],
+        "tie_breakers": ["points", "goal_difference", "goals_for", "head_to_head"],
         "groups": groups,
+        "best_thirds": best_thirds,
     }
 
 

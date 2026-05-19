@@ -75,7 +75,8 @@ export function GroupStandingsPage({ sessionUser }) {
             <h2 className="headline mt-4">Tabelas dos Grupos</h2>
             <p className="subtle-copy mt-3">
               Classificacao da fase de grupos com vitoria valendo 3 pontos, empate 1 ponto e
-              desempate por pontos, saldo de gols e gols marcados.
+              desempate por pontos, saldo de gols, gols marcados e confronto direto quando
+              apenas duas selecoes continuam empatadas.
             </p>
           </div>
           {standings?.generated_at ? (
@@ -162,6 +163,84 @@ export function GroupStandingsPage({ sessionUser }) {
             </div>
           </article>
         ))}
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <p className="eyebrow">Terceiros colocados</p>
+          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+            Ranking dos Terceiros Colocados
+          </h3>
+          <p className="mt-2 text-sm text-muted">
+            Os oito melhores terceiros avancam. A ordenacao usa pontos, saldo de gols e gols
+            marcados.
+          </p>
+        </div>
+
+        <div className="panel overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-line/80">
+              <thead className="bg-canvas/65">
+                <tr className="text-left text-xs uppercase tracking-[0.18em] text-muted">
+                  <th className="px-4 py-4 font-medium">Pos.</th>
+                  <th className="min-w-[150px] px-4 py-4 font-medium">Selecao</th>
+                  <th className="px-4 py-4 font-medium">Grupo</th>
+                  {columns.map((column) => (
+                    <th key={column.key} className="px-3 py-4 text-center font-medium">
+                      {column.label}
+                    </th>
+                  ))}
+                  <th className="px-4 py-4 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/60">
+                {(standings?.best_thirds ?? []).map((team) => (
+                  <tr
+                    key={`${team.group}-${team.team}`}
+                    className={`text-sm ${
+                      team.qualified_third ? "bg-success/5 text-ink" : "bg-panel/40 text-ink"
+                    }`}
+                  >
+                    <td className="px-4 py-4 font-display text-lg font-semibold text-accent">
+                      {team.rank}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-ink">{team.team}</td>
+                    <td className="px-4 py-4 text-muted">{team.group}</td>
+                    {columns.map((column) => (
+                      <td
+                        key={column.key}
+                        className={`px-3 py-4 text-center ${
+                          column.key === "points" ? "font-semibold text-accent" : "text-muted"
+                        }`}
+                      >
+                        {team[column.key]}
+                      </td>
+                    ))}
+                    <td className="px-4 py-4">
+                      {team.qualified_third ? (
+                        <span className="rounded-full border border-success/20 bg-success/5 px-2 py-0.5 text-xs font-semibold text-success">
+                          Classificado (Repescagem)
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-warning/20 bg-warning/5 px-2 py-0.5 text-xs font-semibold text-warning">
+                          Eliminado
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+
+                {(standings?.best_thirds ?? []).length === 0 ? (
+                  <tr className="bg-panel/40 text-sm text-muted">
+                    <td className="px-4 py-5" colSpan={12}>
+                      Ainda nao ha terceiros colocados calculados.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </div>
   );
