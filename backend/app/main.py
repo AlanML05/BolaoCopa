@@ -18,6 +18,7 @@ PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
 BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
+GROUP_LABELS = [f"Grupo {letter}" for letter in "ABCDEFGHIJKL"]
 
 USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool"
 MATCH_COLUMNS = (
@@ -284,6 +285,20 @@ def fetch_all_matches() -> list[dict[str, Any]]:
             FROM matches
             ORDER BY data_hora, id
             """
+        )
+        return [normalize_match(row) for row in cursor.fetchall()]
+
+
+def fetch_group_stage_matches() -> list[dict[str, Any]]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {MATCH_COLUMNS}
+            FROM matches
+            WHERE tournament_phase = %s
+            ORDER BY grupo, data_hora, id
+            """,
+            ("Fase de Grupos",),
         )
         return [normalize_match(row) for row in cursor.fetchall()]
 
@@ -707,6 +722,125 @@ def build_ranking(
     }
 
 
+def get_group_label_for_match(match: dict[str, Any]) -> str | None:
+    sub_phase = match.get("sub_phase") or match.get("stage") or ""
+    if sub_phase in GROUP_LABELS:
+        return sub_phase
+
+    group = (match.get("group") or match.get("grupo") or "").strip()
+    if len(group) == 1 and group.isalpha():
+        return f"Grupo {group.upper()}"
+    if group in GROUP_LABELS:
+        return group
+
+    return None
+
+
+def create_empty_standing(team: str) -> dict[str, Any]:
+    return {
+        "team": team,
+        "played": 0,
+        "wins": 0,
+        "draws": 0,
+        "losses": 0,
+        "goals_for": 0,
+        "goals_against": 0,
+        "goal_difference": 0,
+        "points": 0,
+    }
+
+
+def has_match_score(match: dict[str, Any]) -> bool:
+    return match["home_score"] is not None and match["away_score"] is not None
+
+
+def apply_group_match_result(
+    home_standing: dict[str, Any],
+    away_standing: dict[str, Any],
+    home_score: int,
+    away_score: int,
+) -> None:
+    home_standing["played"] += 1
+    away_standing["played"] += 1
+    home_standing["goals_for"] += home_score
+    home_standing["goals_against"] += away_score
+    away_standing["goals_for"] += away_score
+    away_standing["goals_against"] += home_score
+    home_standing["goal_difference"] = home_standing["goals_for"] - home_standing["goals_against"]
+    away_standing["goal_difference"] = away_standing["goals_for"] - away_standing["goals_against"]
+
+    if home_score > away_score:
+        home_standing["wins"] += 1
+        away_standing["losses"] += 1
+        home_standing["points"] += 3
+        return
+
+    if away_score > home_score:
+        away_standing["wins"] += 1
+        home_standing["losses"] += 1
+        away_standing["points"] += 3
+        return
+
+    home_standing["draws"] += 1
+    away_standing["draws"] += 1
+    home_standing["points"] += 1
+    away_standing["points"] += 1
+
+
+def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    loaded_matches = fetch_group_stage_matches() if matches is None else matches
+    grouped: dict[str, dict[str, dict[str, Any]]] = {group: {} for group in GROUP_LABELS}
+
+    for match in loaded_matches:
+        group_label = get_group_label_for_match(match)
+        if group_label not in grouped:
+            continue
+
+        home_team = match["home_team"]
+        away_team = match["away_team"]
+        grouped[group_label].setdefault(home_team, create_empty_standing(home_team))
+        grouped[group_label].setdefault(away_team, create_empty_standing(away_team))
+
+        if not has_match_score(match):
+            continue
+
+        apply_group_match_result(
+            grouped[group_label][home_team],
+            grouped[group_label][away_team],
+            int(match["home_score"]),
+            int(match["away_score"]),
+        )
+
+    groups = []
+    for group_label in GROUP_LABELS:
+        teams = sorted(
+            grouped[group_label].values(),
+            key=lambda item: (
+                -item["points"],
+                -item["goal_difference"],
+                -item["goals_for"],
+                item["team"].casefold(),
+            ),
+        )
+
+        for index, team in enumerate(teams, start=1):
+            team["rank"] = index
+            team["qualified_direct"] = index <= 2
+
+        groups.append(
+            {
+                "group": group_label,
+                "teams": teams,
+            }
+        )
+
+    return {
+        "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
+        "tie_breakers": ["points", "goal_difference", "goals_for"],
+        "groups": groups,
+    }
+
+
 def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = None) -> dict[str, Any]:
     betting_closes_at = get_betting_closes_at(match)
     return {
@@ -804,6 +938,7 @@ def root() -> dict[str, Any]:
             "/me/bets-overview",
             "/me/bets",
             "/me/bets/{bet_id}",
+            "/standings",
             "/signup",
             "/admin/dashboard",
             "/admin/matches",
@@ -824,6 +959,11 @@ def login(payload: LoginRequest) -> dict[str, Any]:
             "user": serialize_authenticated_user(user),
         }
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais invalidas.")
+
+
+@app.get("/standings")
+def get_standings(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    return build_group_standings()
 
 
 @app.post("/signup", status_code=status.HTTP_201_CREATED)

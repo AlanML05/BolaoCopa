@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 
 const navigation = [
   { to: "/my-bets", label: "Meus Palpites", roles: ["user"] },
+  { to: "/standings", label: "Tabelas dos Grupos", roles: ["user"] },
   { to: "/admin/ranking", label: "Dashboard Ranking", roles: ["admin"] },
 ];
 

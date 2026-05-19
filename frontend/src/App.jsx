@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom
 import { AppShell } from "./components/AppShell";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AdminRankingDashboard } from "./pages/AdminRankingDashboard";
+import { GroupStandingsPage } from "./pages/GroupStandingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyBetsPage } from "./pages/MyBetsPage";
 import { SignUpPage } from "./pages/SignUpPage";
@@ -81,6 +82,7 @@ function AppRoutes() {
             )
           }
         />
+        <Route path="/standings" element={<GroupStandingsPage sessionUser={currentUser} />} />
       </Route>
       <Route
         path="*"
