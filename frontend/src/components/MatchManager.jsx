@@ -25,7 +25,14 @@ const subPhaseOptions = {
     "Grupo K",
     "Grupo L",
   ],
-  "Fase Mata-Mata": ["Oitavas", "Quartas", "Semifinal", "Terceiro Lugar", "Final"],
+  "Fase Mata-Mata": [
+    "16-avos de final",
+    "Oitavas de final",
+    "Quartas de final",
+    "Semifinal",
+    "Disputa do 3º Lugar",
+    "Final",
+  ],
 };
 
 export function MatchManager({

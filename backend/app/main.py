@@ -140,6 +140,22 @@ def normalize_tournament_phase(value: str) -> str:
     return canonical_phase
 
 
+def normalize_knockout_sub_phase(value: str) -> str | None:
+    normalized_key = normalize_text_field(value).casefold().replace("º", "o")
+    allowed_knockout = {
+        "16-avos de final": "16-avos de final",
+        "oitavas de final": "Oitavas de final",
+        "oitavas": "Oitavas de final",
+        "quartas de final": "Quartas de final",
+        "quartas": "Quartas de final",
+        "semifinal": "Semifinal",
+        "disputa do 3o lugar": "Disputa do 3º Lugar",
+        "terceiro lugar": "Disputa do 3º Lugar",
+        "final": "Final",
+    }
+    return allowed_knockout.get(normalized_key)
+
+
 def resolve_match_stage_and_group(tournament_phase: str, sub_phase: str) -> tuple[str, str, str, str]:
     canonical_phase = normalize_tournament_phase(tournament_phase)
     canonical_sub_phase = normalize_text_field(sub_phase)
@@ -160,13 +176,13 @@ def resolve_match_stage_and_group(tournament_phase: str, sub_phase: str) -> tupl
         group_code = canonical_sub_phase.split()[-1]
         return canonical_sub_phase, group_code, canonical_phase, canonical_sub_phase
 
-    allowed_knockout = {"Oitavas", "Quartas", "Semifinal", "Terceiro Lugar", "Final"}
-    if canonical_sub_phase not in allowed_knockout:
+    canonical_knockout_sub_phase = normalize_knockout_sub_phase(canonical_sub_phase)
+    if canonical_knockout_sub_phase is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sub-fase invalida para mata-mata.",
         )
-    return canonical_sub_phase, "Mata-Mata", canonical_phase, canonical_sub_phase
+    return canonical_knockout_sub_phase, "Mata-Mata", canonical_phase, canonical_knockout_sub_phase
 
 
 def resolve_phase(fase: str, grupo: str | None) -> str:
