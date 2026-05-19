@@ -5,9 +5,9 @@ import { MatchResultManager } from "../components/MatchResultManager";
 import { RankingTable } from "../components/RankingTable";
 import { StatCard } from "../components/StatCard";
 import {
-  createMatch,
   deleteMatch,
   getAdminDashboard,
+  updateMatch,
   updateMatchResult,
   updatePaymentStatus,
 } from "../services/api";
@@ -37,8 +37,8 @@ export function AdminRankingDashboard({ sessionUser }) {
   const [notice, setNotice] = useState("");
   const [busyUserId, setBusyUserId] = useState("");
   const [busyMatchId, setBusyMatchId] = useState("");
-  const [creatingMatch, setCreatingMatch] = useState(false);
   const [deletingMatchId, setDeletingMatchId] = useState("");
+  const [updatingMatchId, setUpdatingMatchId] = useState("");
   const [showPaidPoolOnly, setShowPaidPoolOnly] = useState(false);
 
   function syncDashboard(nextDashboard) {
@@ -148,24 +148,6 @@ export function AdminRankingDashboard({ sessionUser }) {
     }
   }
 
-  async function handleMatchCreate(matchPayload) {
-    setCreatingMatch(true);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await createMatch(sessionUser.accessToken, matchPayload);
-      syncDashboard(response.dashboard);
-      setNotice(response.message);
-      return true;
-    } catch (requestError) {
-      setError(requestError.message);
-      return false;
-    } finally {
-      setCreatingMatch(false);
-    }
-  }
-
   async function handleMatchDelete(matchId) {
     setDeletingMatchId(matchId);
     setError("");
@@ -179,6 +161,24 @@ export function AdminRankingDashboard({ sessionUser }) {
       setError(requestError.message);
     } finally {
       setDeletingMatchId("");
+    }
+  }
+
+  async function handleMatchUpdate(matchId, matchPayload) {
+    setUpdatingMatchId(matchId);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await updateMatch(sessionUser.accessToken, matchId, matchPayload);
+      syncDashboard(response.dashboard);
+      setNotice(response.message);
+      return true;
+    } catch (requestError) {
+      setError(requestError.message);
+      return false;
+    } finally {
+      setUpdatingMatchId("");
     }
   }
 
@@ -263,9 +263,9 @@ export function AdminRankingDashboard({ sessionUser }) {
 
       <MatchManager
         matches={dashboard.matches}
-        creating={creatingMatch}
         deletingMatchId={deletingMatchId}
-        onCreate={handleMatchCreate}
+        updatingMatchId={updatingMatchId}
+        onUpdate={handleMatchUpdate}
         onDelete={handleMatchDelete}
       />
 

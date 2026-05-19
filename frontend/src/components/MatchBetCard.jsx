@@ -1,5 +1,14 @@
 import { formatDateTime, formatMatchDateTime } from "../services/formatters";
 
+const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
+const WAITING_FOR_TEAMS_MESSAGE = "Aguardando definição dos confrontos";
+
+function hasPlaceholderTeam(match) {
+  return [match.home_team, match.away_team].some((teamName) =>
+    PLACEHOLDER_TEAM_TERMS.some((term) => String(teamName ?? "").toLowerCase().includes(term)),
+  );
+}
+
 export function MatchBetCard({
   match,
   formState,
@@ -13,10 +22,13 @@ export function MatchBetCard({
   const lockWindowMs = 30 * 60 * 1000;
   const closedByClientClock =
     Number.isFinite(kickoffTime) && kickoffTime - currentTime <= lockWindowMs;
-  const bettingEnabled = Boolean(match.betting_open) && !closedByClientClock;
+  const waitingForDefinedTeams = hasPlaceholderTeam(match);
+  const bettingEnabled =
+    Boolean(match.betting_open) && !closedByClientClock && !waitingForDefinedTeams;
   const closedReason =
-    match.betting_closed_reason ??
-    (closedByClientClock ? "Palpite encerrado: janela de 30 minutos atingida." : "");
+    (waitingForDefinedTeams ? WAITING_FOR_TEAMS_MESSAGE : "") ||
+    (match.betting_closed_reason ??
+      (closedByClientClock ? "Palpite encerrado: janela de 30 minutos atingida." : ""));
 
   return (
     <article className="panel-strong flex h-full flex-col overflow-hidden px-5 py-5 transition hover:border-accent/30">
@@ -37,7 +49,13 @@ export function MatchBetCard({
                 : "border-warning/30 bg-warning/5 text-warning"
           }`}
         >
-          {hasExistingBet ? "Palpite salvo" : bettingEnabled ? "Aberto" : "Palpite encerrado"}
+          {hasExistingBet
+            ? "Palpite salvo"
+            : waitingForDefinedTeams
+              ? "Aguardando"
+              : bettingEnabled
+                ? "Aberto"
+                : "Palpite encerrado"}
         </span>
       </div>
 
@@ -100,13 +118,19 @@ export function MatchBetCard({
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="button-primary w-full"
-            disabled={!bettingEnabled || submitting}
-          >
-            {submitting ? "Salvando..." : bettingEnabled ? "Registrar palpite" : "Palpite encerrado"}
-          </button>
+          {waitingForDefinedTeams ? (
+            <div className="rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-center text-sm font-semibold text-warning">
+              {WAITING_FOR_TEAMS_MESSAGE}
+            </div>
+          ) : (
+            <button
+              type="submit"
+              className="button-primary w-full"
+              disabled={!bettingEnabled || submitting}
+            >
+              {submitting ? "Salvando..." : bettingEnabled ? "Registrar palpite" : "Palpite encerrado"}
+            </button>
+          )}
         </form>
       )}
     </article>

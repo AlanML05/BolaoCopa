@@ -7,6 +7,7 @@ import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
+const phaseOptions = ["Fase de Grupos", "Fase Mata-Mata"];
 
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
@@ -46,6 +47,10 @@ function getSubPhaseLabel(match) {
   return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
 }
 
+function getTournamentPhaseLabel(match) {
+  return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
+}
+
 function isBetEditable(match, currentTime) {
   const kickoffTime = Date.parse(match.kickoff_at);
   const closedByClientClock =
@@ -59,6 +64,7 @@ export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
   const [forms, setForms] = useState({});
   const [editForms, setEditForms] = useState({});
+  const [selectedPhase, setSelectedPhase] = useState("Fase de Grupos");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSubPhase, setSelectedSubPhase] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -109,10 +115,9 @@ export function MyBetsPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
-  const groupStageComplete = Boolean(overview?.metadata?.group_stage_complete);
   const filterableMatches = useMemo(() => {
-    return upcomingMatches.filter((match) => groupStageComplete || match.phase !== "knockout");
-  }, [groupStageComplete, upcomingMatches]);
+    return upcomingMatches.filter((match) => getTournamentPhaseLabel(match) === selectedPhase);
+  }, [selectedPhase, upcomingMatches]);
   const dateOptions = useMemo(() => {
     return Array.from(new Set(filterableMatches.map(getMatchDateKey))).sort((first, second) =>
       first.localeCompare(second, "pt-BR", { numeric: true }),
@@ -140,6 +145,11 @@ export function MyBetsPage({ sessionUser }) {
         getMatchDateKey(match) === selectedDate && getSubPhaseLabel(match) === selectedSubPhase,
     );
   }, [filterableMatches, selectedDate, selectedSubPhase]);
+
+  useEffect(() => {
+    setSelectedDate("");
+    setSelectedSubPhase("");
+  }, [selectedPhase]);
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
@@ -289,7 +299,7 @@ export function MyBetsPage({ sessionUser }) {
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
             <p className="subtle-copy mt-3">
-              Escolha uma data e uma sub-fase para registrar seus palpites nas partidas abertas.
+              Escolha uma fase, data e sub-fase para consultar os jogos e registrar seus palpites.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -300,9 +310,9 @@ export function MyBetsPage({ sessionUser }) {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Jogos futuros"
+          label="Jogos cadastrados"
           value={overview.summary.upcoming_matches}
-          caption="Partidas abertas para acompanhamento e envio de palpite."
+          caption="Partidas carregadas para acompanhamento e envio de palpite."
           tone="accent"
         />
         <StatCard
@@ -345,11 +355,31 @@ export function MyBetsPage({ sessionUser }) {
             </h3>
           </div>
           <p className="text-sm text-muted">
-            Os jogos aparecem depois que voce selecionar a data e a sub-fase.
+            Os jogos aparecem depois que voce selecionar a fase, data e sub-fase.
           </p>
         </div>
 
         <div className="panel px-5 py-5">
+          <div className="mb-5 flex flex-wrap gap-2">
+            {phaseOptions.map((phase) => {
+              const isSelected = selectedPhase === phase;
+              return (
+                <button
+                  key={phase}
+                  type="button"
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                    isSelected
+                      ? "border-accent/60 bg-accent/10 text-accent"
+                      : "border-line/80 bg-canvas/70 text-muted hover:border-accent/30 hover:text-ink"
+                  }`}
+                  onClick={() => setSelectedPhase(phase)}
+                >
+                  {phase}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
               Data
@@ -393,7 +423,7 @@ export function MyBetsPage({ sessionUser }) {
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
             <p className="mt-2 text-sm text-muted">
-              Quando novas partidas forem cadastradas, elas aparecerao aqui.
+              Quando partidas desta fase forem cadastradas, elas aparecerao aqui.
             </p>
           </section>
         ) : !selectedDate || !selectedSubPhase ? (

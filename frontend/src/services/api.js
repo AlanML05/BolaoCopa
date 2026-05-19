@@ -90,9 +90,9 @@ export function getAdminDashboard(token) {
   return request("/admin/dashboard", { token });
 }
 
-export function createMatch(token, matchPayload) {
-  return request("/admin/matches", {
-    method: "POST",
+export function updateMatch(token, targetMatchId, matchPayload) {
+  return request(`/admin/matches/${targetMatchId}`, {
+    method: "PUT",
     token,
     body: matchPayload,
   });
