@@ -502,10 +502,6 @@ def is_group_stage_match(match: dict[str, Any]) -> bool:
     return match.get("phase", "group") == "group"
 
 
-def is_knockout_match(match: dict[str, Any]) -> bool:
-    return match.get("phase") == "knockout"
-
-
 PLACEHOLDER_TEAM_MARKERS = ("grupo", "jogo", "vencedor", "perdedor")
 
 
@@ -536,14 +532,8 @@ def is_match_upcoming(match: dict[str, Any], reference_time: datetime | None = N
 def is_match_open_for_bet(
     match: dict[str, Any],
     reference_time: datetime | None = None,
-    group_stage_complete: bool | None = None,
 ) -> bool:
     if has_placeholder_team(match):
-        return False
-
-    if is_knockout_match(match) and not (
-        is_group_stage_complete() if group_stage_complete is None else group_stage_complete
-    ):
         return False
 
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
@@ -553,15 +543,9 @@ def is_match_open_for_bet(
 def get_betting_closed_reason(
     match: dict[str, Any],
     reference_time: datetime | None = None,
-    group_stage_complete: bool | None = None,
 ) -> str | None:
     if has_placeholder_team(match):
         return "Aguardando definição dos confrontos."
-
-    if is_knockout_match(match) and not (
-        is_group_stage_complete() if group_stage_complete is None else group_stage_complete
-    ):
-        return "Aguardando definicao da Fase de Grupos."
 
     now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
     kickoff_at = parse_datetime(match["kickoff_at"])
@@ -1010,7 +994,7 @@ def build_group_standings(matches: list[dict[str, Any]] | None = None) -> dict[s
     }
 
 
-def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = None) -> dict[str, Any]:
+def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
     betting_closes_at = get_betting_closes_at(match)
     return {
         "id": match["id"],
@@ -1030,8 +1014,8 @@ def serialize_match(match: dict[str, Any], group_stage_complete: bool | None = N
         "status": match["status"],
         "home_score": match["home_score"],
         "away_score": match["away_score"],
-        "betting_open": is_match_open_for_bet(match, group_stage_complete=group_stage_complete),
-        "betting_closed_reason": get_betting_closed_reason(match, group_stage_complete=group_stage_complete),
+        "betting_open": is_match_open_for_bet(match),
+        "betting_closed_reason": get_betting_closed_reason(match),
         "has_result": is_match_finished(match),
         "result_entry_allowed": is_match_available_for_result_entry(match),
     }
@@ -1052,7 +1036,7 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
         },
         "users": [serialize_user(user) for user in users if user["role"] == "user"],
         "matches": [
-            serialize_match(match, group_stage_complete=group_stage_complete)
+            serialize_match(match)
             for match in sorted(matches, key=lambda item: parse_datetime(item["kickoff_at"]))
         ],
     }
@@ -1214,7 +1198,7 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
     for match in matches:
         existing_bet = bets_by_match.get(match["id"])
 
-        match_payload = serialize_match(match, group_stage_complete=group_stage_complete)
+        match_payload = serialize_match(match)
         match_payload["existing_bet"] = None if existing_bet is None else {
             "bet_id": existing_bet["id"],
             "predicted_home_score": existing_bet["predicted_home_score"],
@@ -1243,7 +1227,7 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
                 "predicted_home_score": bet["predicted_home_score"],
                 "predicted_away_score": bet["predicted_away_score"],
                 "match": {
-                    **serialize_match(match, group_stage_complete=group_stage_complete),
+                    **serialize_match(match),
                 },
             }
         )

@@ -20,15 +20,22 @@ export function MatchBetCard({
   const hasExistingBet = Boolean(match.existing_bet);
   const kickoffTime = Date.parse(match.kickoff_at);
   const lockWindowMs = 30 * 60 * 1000;
+  const hasValidKickoff = Number.isFinite(kickoffTime);
   const closedByClientClock =
-    Number.isFinite(kickoffTime) && kickoffTime - currentTime <= lockWindowMs;
+    hasValidKickoff && kickoffTime - currentTime <= lockWindowMs;
+  const isScheduled = match.status === "scheduled";
   const waitingForDefinedTeams = hasPlaceholderTeam(match);
   const bettingEnabled =
-    Boolean(match.betting_open) && !closedByClientClock && !waitingForDefinedTeams;
+    isScheduled && hasValidKickoff && !closedByClientClock && !waitingForDefinedTeams;
   const closedReason =
     (waitingForDefinedTeams ? WAITING_FOR_TEAMS_MESSAGE : "") ||
-    (match.betting_closed_reason ??
-      (closedByClientClock ? "Palpite encerrado: janela de 30 minutos atingida." : ""));
+    (!hasValidKickoff
+      ? "Data do jogo indefinida."
+      : !isScheduled
+        ? "Palpite encerrado."
+        : closedByClientClock
+          ? "Palpite encerrado: janela de 30 minutos atingida."
+          : match.betting_closed_reason ?? "");
 
   return (
     <article className="panel-strong flex h-full flex-col overflow-hidden px-5 py-5 transition hover:border-accent/30">
