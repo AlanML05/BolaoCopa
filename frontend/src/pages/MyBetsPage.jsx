@@ -8,6 +8,7 @@ import { formatDateTime, formatScore } from "../services/formatters";
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
 const phaseOptions = ["Fase de Grupos", "Fase Mata-Mata"];
+const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
 
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
@@ -51,13 +52,24 @@ function getTournamentPhaseLabel(match) {
   return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
 }
 
+function hasPlaceholderTeam(match) {
+  return [match.home_team, match.away_team].some((teamName) =>
+    PLACEHOLDER_TEAM_TERMS.some((term) => String(teamName ?? "").toLowerCase().includes(term)),
+  );
+}
+
 function isBetEditable(match, currentTime) {
   const kickoffTime = Date.parse(match.kickoff_at);
   const closedByClientClock =
     Number.isFinite(kickoffTime) && kickoffTime - currentTime <= LOCK_WINDOW_MS;
   const isScheduled = match.status === "scheduled";
 
-  return isScheduled && Number.isFinite(kickoffTime) && !closedByClientClock;
+  return (
+    isScheduled &&
+    Number.isFinite(kickoffTime) &&
+    !closedByClientClock &&
+    !hasPlaceholderTeam(match)
+  );
 }
 
 export function MyBetsPage({ sessionUser }) {
