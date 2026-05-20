@@ -1,60 +1,66 @@
-# Bolao Copa do Mundo
+# Bolao Copa do Mundo 2026
 
-Sistema full-stack para gerenciamento de bolao da Copa do Mundo. O projeto permite cadastro de participantes, registro de palpites, controle manual de pagamentos, cadastro manual de partidas, insercao manual de placares e ranking automatico com criterios de desempate.
+Plataforma full-stack para gerenciamento de palpites corporativos da Copa do Mundo
+2026. O sistema oferece cadastro de participantes, painel administrativo, registro de
+palpites, calculo automatico das tabelas da fase de grupos e chaveamento dinamico do
+mata-mata.
 
-## Visao Geral
-
-Este MVP foi desenhado para operar sem dependencia de APIs externas de futebol. O administrador controla manualmente a agenda de jogos e os resultados pelo painel administrativo, enquanto participantes criam conta, acessam jogos disponiveis e registram seus palpites antes do bloqueio configurado.
+O projeto foi desenhado para operar de forma 100% manual, sem depender de APIs externas
+de futebol para resultados, jogos ou classificacoes.
 
 ## Stack
 
-- Frontend: React, Vite, Tailwind CSS
-- Backend: Python, FastAPI, PyMySQL
-- Banco de dados: MySQL
-- Autenticacao: JWT com senha criptografada via bcrypt
-- Deploy validado: Vercel para frontend, Railway para backend e MySQL
+| Camada | Tecnologias |
+| --- | --- |
+| Frontend | React, Vite, TailwindCSS |
+| UI | Dark Mode Minimalist |
+| Backend | Python, FastAPI |
+| Banco de dados | MySQL |
+| Auth | JWT com senhas criptografadas |
+| Deploy sugerido | Vercel + Railway |
+
+## Funcionalidades Principais
+
+- Painel Admin exclusivo para controle do torneio.
+- Lancamento manual de resultados reais.
+- Edicao de confrontos do mata-mata quando as selecoes forem definidas.
+- Banco populado via script com os 104 jogos da Copa do Mundo 2026.
+- Cadastro de participantes via tela de Sign Up.
+- Trava inteligente de apostas:
+  - jogos do mata-mata so liberam palpite quando os placeholders sao trocados por times reais;
+  - todos os palpites fecham 30 minutos antes do inicio de cada partida.
+- Calculo automatico das tabelas da fase de grupos.
+- Criterios de desempate da tabela:
+  - pontos;
+  - saldo de gols;
+  - gols marcados;
+  - confronto direto quando aplicavel.
+- Ranking dos melhores terceiros colocados.
+- Arvore visual do mata-mata com layout simetrico.
+- Bandeiras circulares das selecoes via FlagCDN.
+- Rankings separados para Admin:
+  - Ranking Geral;
+  - Ranking Bolao Pago.
+- Usuario comum ve apenas a experiencia de palpites, sem informacoes financeiras.
 
 ## Arquitetura
 
 ```text
-Usuario
-  -> Frontend React/Vite na Vercel
-  -> Backend FastAPI na Railway
-  -> MySQL na Railway
+Frontend React/Vite
+        |
+        | VITE_API_BASE_URL
+        v
+Backend FastAPI
+        |
+        | PyMySQL
+        v
+MySQL
 ```
 
-O frontend consome a API por meio da variavel `VITE_API_BASE_URL`. O backend libera origens via CORS e usa variaveis de ambiente para acessar o MySQL e assinar tokens JWT.
+Em producao, o frontend pode ser publicado na Vercel, enquanto o backend e o MySQL
+podem rodar na Railway. O backend usa CORS para liberar apenas as origens configuradas.
 
-## Funcionalidades
-
-- Cadastro de novos participantes.
-- Login com token JWT.
-- Palpites por partida com bloqueio 30 minutos antes do kickoff.
-- Painel admin protegido.
-- CRUD manual de partidas futuras.
-- Insercao e atualizacao manual de placares.
-- Controle manual de pagamento dos participantes.
-- Ranking automatico com pote e distribuicao de premios.
-- Sem API-Football ou qualquer integracao de terceiros para resultados.
-
-## Regras Do Bolao
-
-- Cada participante paga R$ 100.
-- Apenas participantes com pagamento confirmado entram na distribuicao do pote.
-- Premiacao: 1o lugar 60%, 2o lugar 30%, 3o lugar 10%.
-- Placar exato vale 2 pontos.
-- Tendencia correta, vencedor ou empate, vale 1 ponto.
-- Palpites fecham 30 minutos antes do jogo.
-- Jogos de mata-mata ficam bloqueados ate a fase de grupos estar completa.
-
-## Desempates
-
-1. Maior pontuacao total.
-2. Maior numero de placares exatos.
-3. Maior numero de empates acertados na tendencia.
-4. Maior numero de vencedores acertados.
-
-## Estrutura Do Projeto
+## Estrutura do Projeto
 
 ```text
 backend/
@@ -64,6 +70,9 @@ backend/
     security.py
   database/
     schema.sql
+  matches_2026.json
+  knockout_matches_2026.json
+  seed_matches_2026.py
   requirements.txt
 
 frontend/
@@ -75,25 +84,45 @@ frontend/
   package.json
 
 seed.sql
-.env.example
+README.md
 ```
 
-## Variaveis De Ambiente
+## Variaveis de Ambiente
 
-Crie um arquivo `.env` na raiz do projeto com base em `.env.example`.
+Crie os arquivos `.env` com base nos templates `.env.example`.
+
+### Backend
+
+Copie o template:
+
+```powershell
+Copy-Item backend\.env.example .env
+```
+
+Preencha as variaveis:
 
 ```env
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=
+DB_PASSWORD=SUA_SENHA_AQUI
 DB_NAME=bolao_copa
 CORS_ALLOW_ORIGINS=http://localhost:5173
-JWT_SECRET_KEY=change-me
+JWT_SECRET_KEY=SUA_CHAVE_SECRETA_AQUI
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
 ```
 
-No frontend, configure:
+Em deploy, configure essas variaveis diretamente no painel da plataforma.
+
+### Frontend
+
+Crie o arquivo local do Vite:
+
+```powershell
+Copy-Item frontend\.env.example frontend\.env
+```
+
+Exemplo:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8000
@@ -101,9 +130,9 @@ VITE_API_BASE_URL=http://localhost:8000
 
 Em producao, `VITE_API_BASE_URL` deve apontar para a URL publica do backend.
 
-## Rodando Localmente
+## Como Rodar Localmente
 
-### 1. Banco De Dados
+### 1. Banco de Dados
 
 Crie o banco:
 
@@ -113,19 +142,20 @@ CREATE DATABASE IF NOT EXISTS bolao_copa
   COLLATE utf8mb4_unicode_ci;
 ```
 
-Execute o schema e o seed demonstrativo:
+Execute o schema:
 
 ```powershell
 mysql -u root -p bolao_copa -e "source backend/database/schema.sql"
-mysql -u root -p bolao_copa -e "source seed.sql"
 ```
 
-O `seed.sql` da raiz contem apenas dados ficticios para desenvolvimento: um admin demo, um participante demo e duas partidas de fase de grupos.
+Para limpar apostas e jogos antes de recarregar a tabela oficial:
 
-Credenciais locais do seed:
-
-- Admin: `admin.demo` / `123456`
-- Participante: `participante.demo` / `123456`
+```sql
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE bets;
+TRUNCATE TABLE matches;
+SET FOREIGN_KEY_CHECKS = 1;
+```
 
 ### 2. Backend
 
@@ -136,12 +166,31 @@ pip install -r backend\requirements.txt
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Endpoints uteis:
+URLs uteis:
 
-- API: `http://localhost:8000`
-- Swagger: `http://localhost:8000/docs`
+```text
+API:     http://localhost:8000
+Swagger: http://localhost:8000/docs
+```
 
-### 3. Frontend
+### 3. Popular os 104 Jogos da Copa 2026
+
+Com o ambiente virtual ativo e o `.env` configurado, rode os dois arquivos de carga:
+
+```powershell
+python backend\seed_matches_2026.py backend\matches_2026.json
+python backend\seed_matches_2026.py backend\knockout_matches_2026.json
+```
+
+O primeiro comando insere os 72 jogos da fase de grupos. O segundo insere os 32 jogos
+do mata-mata, totalizando 104 partidas.
+
+O arquivo `seed.sql` da raiz e opcional para ambiente local/demo, pois cria usuarios e
+partidas ficticias. Nao use esse arquivo em producao.
+
+### 4. Frontend
+
+Em outro terminal:
 
 ```powershell
 cd frontend
@@ -151,24 +200,71 @@ npm run dev -- --host 0.0.0.0 --port 5173
 
 Frontend local:
 
-- `http://localhost:5173`
+```text
+http://localhost:5173
+```
+
+## Fluxo de Uso
+
+1. Admin acessa o painel administrativo.
+2. Admin confere os 104 jogos carregados pelo seed.
+3. Participantes criam conta e registram palpites da fase de grupos.
+4. Durante o mata-mata, confrontos com placeholders ficam bloqueados.
+5. Quando o Admin troca o placeholder por selecoes reais, aquele jogo fica liberado
+   imediatamente para palpite.
+6. Palpites encerram automaticamente 30 minutos antes da partida.
+7. Admin lanca o placar real.
+8. O sistema recalcula rankings, tabelas e chaveamento visual.
+
+## Regras de Negocio
+
+- Cada usuario pode registrar um palpite por partida.
+- Palpites podem ser editados ate 30 minutos antes do inicio do jogo.
+- Jogos com nomes como `Vencedor Jogo 73`, `Perdedor Jogo 101` ou `3o Grupo A/B/C`
+  ficam bloqueados ate os times reais serem definidos.
+- O usuario comum nao ve informacoes financeiras.
+- O Admin controla participantes do Bolao Pago e pagamentos.
+- Ranking Geral e Ranking Bolao Pago sao separados na visao administrativa.
 
 ## Deploy
 
-Arquitetura validada:
+Configuracao recomendada:
 
-- Vercel hospeda o frontend React/Vite.
-- Railway hospeda o backend FastAPI.
-- Railway hospeda o MySQL.
+| Servico | Responsabilidade |
+| --- | --- |
+| Vercel | Frontend React/Vite |
+| Railway | Backend FastAPI |
+| Railway MySQL | Banco de dados |
 
-Variaveis principais:
+Variaveis essenciais no backend:
 
-- Backend Railway: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET_KEY`, `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`.
-- Frontend Vercel: `VITE_API_BASE_URL`.
+```env
+DB_HOST=
+DB_PORT=
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+CORS_ALLOW_ORIGINS=
+JWT_SECRET_KEY=
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
+```
 
-## Observacoes De Producao
+Variavel essencial no frontend:
 
-- Nao use o `seed.sql` em producao.
-- Troque sempre o `JWT_SECRET_KEY`.
-- As credenciais reais devem ficar apenas em variaveis de ambiente.
-- O projeto nao depende de API externa para cadastrar jogos ou resultados.
+```env
+VITE_API_BASE_URL=
+```
+
+## Observacoes de Seguranca
+
+- Nunca versionar arquivos `.env` reais.
+- Trocar `JWT_SECRET_KEY` antes de publicar.
+- Nao usar credenciais demo em producao.
+- Rodar seeds oficiais apenas em bancos preparados para receber a carga.
+- Conferir `CORS_ALLOW_ORIGINS` antes do deploy publico.
+
+## Status
+
+Projeto finalizado como MVP funcional para Bolao da Copa do Mundo 2026, com backend,
+frontend, banco relacional, painel administrativo, fluxo de usuarios, tabelas oficiais
+e chaveamento dinamico.
