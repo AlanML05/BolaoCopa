@@ -138,31 +138,57 @@ function splitRound(matches) {
   };
 }
 
-function TeamLine({ team }) {
+function isScoreValue(value) {
+  return value !== null && value !== undefined;
+}
+
+function hasMatchScore(match) {
+  return isScoreValue(match.home_score) && isScoreValue(match.away_score);
+}
+
+function getPenaltyScore(match, side) {
+  const candidateKeys =
+    side === "home"
+      ? ["home_penalty_score", "home_penalties", "home_penalty", "penalty_home_score"]
+      : ["away_penalty_score", "away_penalties", "away_penalty", "penalty_away_score"];
+
+  const key = candidateKeys.find((candidateKey) => isScoreValue(match[candidateKey]));
+  return key ? match[key] : null;
+}
+
+function TeamLine({ team, score, penaltyScore }) {
   const cleanTeam = String(team ?? "").trim();
   const placeholder = isPlaceholderTeam(team);
   const flagCode = placeholder ? null : getFlagCode(cleanTeam);
+  const scoreDisplay = isScoreValue(score)
+    ? `${score}${isScoreValue(penaltyScore) ? ` (${penaltyScore})` : ""}`
+    : "";
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      {flagCode ? (
-        <img
-          src={`https://flagcdn.com/w40/${flagCode}.png`}
-          alt={`Bandeira ${cleanTeam}`}
-          className="h-4 w-4 shrink-0 rounded-full border border-line/70 object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <span className="h-4 w-4 shrink-0 rounded-full border border-line/60 bg-canvas/70" />
-      )}
-      <p
-        className={`truncate text-xs font-semibold ${
-          placeholder ? "italic text-muted/50" : "text-ink"
-        }`}
-      >
-        {team}
-      </p>
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        {flagCode ? (
+          <img
+            src={`https://flagcdn.com/w40/${flagCode}.png`}
+            alt={`Bandeira ${cleanTeam}`}
+            className="h-4 w-4 shrink-0 rounded-full border border-line/70 object-cover"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <span className="h-4 w-4 shrink-0 rounded-full border border-line/60 bg-canvas/70" />
+        )}
+        <p
+          className={`truncate text-xs font-semibold ${
+            placeholder ? "italic text-muted/50" : "text-ink"
+          }`}
+        >
+          {team}
+        </p>
+      </div>
+      <span className="w-8 shrink-0 text-right text-sm font-bold leading-none text-white">
+        {scoreDisplay}
+      </span>
     </div>
   );
 }
@@ -225,6 +251,7 @@ function ChampionCelebration({ champion }) {
 
 function MatchCard({ match, featured = false }) {
   const matchNumber = getMatchNumber(match);
+  const showScore = hasMatchScore(match);
 
   return (
     <article
@@ -242,9 +269,17 @@ function MatchCard({ match, featured = false }) {
       </div>
 
       <div className="space-y-1.5">
-        <TeamLine team={match.home_team} />
+        <TeamLine
+          team={match.home_team}
+          score={showScore ? match.home_score : null}
+          penaltyScore={getPenaltyScore(match, "home")}
+        />
         <div className="h-px bg-line/60" />
-        <TeamLine team={match.away_team} />
+        <TeamLine
+          team={match.away_team}
+          score={showScore ? match.away_score : null}
+          penaltyScore={getPenaltyScore(match, "away")}
+        />
       </div>
 
       <p className="mt-2 truncate text-[10px] text-muted/75">
