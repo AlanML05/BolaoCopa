@@ -568,14 +568,6 @@ def get_bet_edit_closed_reason(
     return None
 
 
-def is_match_available_for_result_entry(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
-    if is_match_finished(match):
-        return True
-
-    now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
-    return parse_datetime(match["kickoff_at"]) <= now
-
-
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     normalized_username = normalize_login_value(username)
     user = fetch_user_by_login(normalized_username)
@@ -1007,7 +999,7 @@ def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
         "betting_open": is_match_open_for_bet(match),
         "betting_closed_reason": get_betting_closed_reason(match),
         "has_result": is_match_finished(match),
-        "result_entry_allowed": is_match_available_for_result_entry(match),
+        "result_entry_allowed": True,
     }
 
 
@@ -1487,12 +1479,7 @@ def update_match_result(
     payload: MatchResultUpdateRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
-    match = get_match(match_id)
-    if not is_match_available_for_result_entry(match):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="O placar real so pode ser informado para partidas que ja chegaram ao horario do jogo.",
-        )
+    get_match(match_id)
 
     with db_cursor(commit=True) as cursor:
         cursor.execute(
