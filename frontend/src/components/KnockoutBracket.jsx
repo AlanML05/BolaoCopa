@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from "react";
+
 const placeholderTerms = ["grupo", "jogo", "vencedor", "perdedor"];
-const trophyImageUrl = "http://googleusercontent.com/image_collection/image_retrieval/8008038746451703890";
+const trophyImageUrl = "/taca.png";
 
 const flagMap = {
   "Brasil": "br",
@@ -190,14 +192,14 @@ function ChampionCelebration({ champion }) {
   return (
     <div className="pointer-events-none absolute left-1/2 top-4 z-20 w-[340px] -translate-x-1/2 text-center">
       <div className="relative mx-auto flex flex-col items-center">
-        <div className="absolute inset-x-8 top-3 h-32 rounded-full bg-yellow-300/10 blur-2xl" />
-        <div className="absolute top-8 h-24 w-72 rounded-full bg-accent/10 blur-3xl" />
-        <div className="absolute top-2 h-40 w-40 animate-pulse rounded-full border border-yellow-300/20" />
-        <div className="relative grid h-44 w-44 place-items-center rounded-full bg-gradient-to-b from-yellow-300/15 via-accent/10 to-transparent">
+        <div className="absolute inset-x-8 top-3 h-28 rounded-full bg-yellow-300/10 blur-2xl" />
+        <div className="absolute top-8 h-20 w-64 rounded-full bg-accent/10 blur-3xl" />
+        <div className="absolute top-2 h-36 w-36 animate-pulse rounded-full border border-yellow-300/20" />
+        <div className="relative grid h-40 w-40 place-items-center rounded-full bg-gradient-to-b from-yellow-300/15 via-accent/10 to-transparent">
           <img
             src={trophyImageUrl}
             alt="Taca da Copa do Mundo"
-            className="h-40 w-40 object-contain drop-shadow-[0_0_28px_rgba(250,204,21,0.45)]"
+            className="h-32 w-32 object-contain drop-shadow-[0_0_28px_rgba(250,204,21,0.45)]"
           />
         </div>
         <div className="relative -mt-1 flex items-center justify-center gap-3 rounded-full border border-yellow-300/25 bg-canvas/80 px-5 py-2 shadow-[0_0_28px_rgba(250,204,21,0.16)]">
@@ -307,8 +309,8 @@ function RoundHeader({ round, align = "left" }) {
 
 function CenterColumn({ finalMatch, thirdPlaceMatch }) {
   return (
-    <div className="flex min-h-[620px] flex-col items-center justify-center gap-8 px-4">
-      <div className="w-full max-w-[240px]">
+    <div className="flex min-h-[720px] flex-col items-center justify-center gap-12 px-8">
+      <div className="w-full max-w-[260px]">
         <div className="mb-3 text-center">
           <p className="text-[10px] uppercase tracking-[0.22em] text-accent">Jogo 104</p>
           <h4 className="mt-1 font-display text-xl font-semibold text-ink">Final</h4>
@@ -318,7 +320,7 @@ function CenterColumn({ finalMatch, thirdPlaceMatch }) {
 
       <div className="h-10 w-px bg-line/70" />
 
-      <div className="w-full max-w-[220px]">
+      <div className="w-full max-w-[230px]">
         <div className="mb-3 text-center">
           <p className="text-[10px] uppercase tracking-[0.22em] text-muted">Jogo 103</p>
           <h4 className="mt-1 font-display text-base font-semibold text-ink">3o Lugar</h4>
@@ -330,6 +332,8 @@ function CenterColumn({ finalMatch, thirdPlaceMatch }) {
 }
 
 export function KnockoutBracket({ matches }) {
+  const bracketRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const knockoutMatches = matches
     .filter((match) => match.tournament_phase === "Fase Mata-Mata")
     .sort(compareMatches);
@@ -342,17 +346,61 @@ export function KnockoutBracket({ matches }) {
   }));
   const rightRounds = [...roundGroups].reverse();
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(document.fullscreenElement === bracketRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  async function handleFullscreenToggle() {
+    if (!bracketRef.current) {
+      return;
+    }
+
+    if (document.fullscreenElement === bracketRef.current) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await bracketRef.current.requestFullscreen();
+  }
+
   return (
-    <section className="panel overflow-hidden">
-      <div className="border-b border-line/80 px-5 py-4">
-        <p className="eyebrow">Mata-Mata</p>
-        <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-          Chaveamento Mata-Mata
-        </h3>
+    <section
+      ref={bracketRef}
+      className={`panel overflow-hidden ${
+        isFullscreen ? "h-screen w-screen rounded-none border-0 bg-slate-950" : ""
+      }`}
+    >
+      <div className="flex flex-col gap-4 border-b border-line/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="eyebrow">Mata-Mata</p>
+          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+            Chaveamento Mata-Mata
+          </h3>
+        </div>
+        <button
+          type="button"
+          className="button-secondary w-full sm:w-auto"
+          onClick={handleFullscreenToggle}
+        >
+          {isFullscreen ? "Reduzir Tela Cheia" : "Ampliar Tela Cheia"}
+        </button>
       </div>
 
-      <div className="overflow-x-auto px-5 py-5">
-        <div className="relative grid min-w-[1440px] grid-cols-[repeat(4,150px)_260px_repeat(4,150px)] gap-5">
+      <div
+        className={
+          isFullscreen
+            ? "h-[calc(100vh-104px)] overflow-auto px-8 py-8"
+            : "overflow-x-auto px-5 py-5"
+        }
+      >
+        <div className="relative grid min-w-[1820px] grid-cols-[repeat(4,150px)_360px_repeat(4,150px)] gap-8">
           <ChampionCelebration champion={champion} />
 
           {roundGroups.map((round) => (
