@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { MatchManager } from "../components/MatchManager";
 import { MatchResultManager } from "../components/MatchResultManager";
@@ -29,6 +29,68 @@ function createResultForms(matches) {
   }, {});
 }
 
+const ALL_USERS = "all-users";
+const ALL_PHASES = "all-phases";
+const ALL_SUB_PHASES = "all-sub-phases";
+const GROUP_PHASE = "Fase de Grupos";
+const KNOCKOUT_PHASE = "Fase Mata-Mata";
+const GROUP_SUB_PHASES = Array.from({ length: 12 }, (_, index) =>
+  `Grupo ${String.fromCharCode(65 + index)}`,
+);
+const KNOCKOUT_SUB_PHASES = [
+  "16-avos de Final",
+  "Oitavas de Final",
+  "Quartas de Final",
+  "Semifinal",
+  "Terceiro Lugar",
+  "Final",
+];
+
+function getBetPhaseLabel(bet) {
+  if (bet.tournament_phase) {
+    return bet.tournament_phase;
+  }
+
+  return bet.phase === "knockout" ? KNOCKOUT_PHASE : GROUP_PHASE;
+}
+
+function getBetGroupLabel(bet) {
+  const group = bet.sub_phase ?? bet.group ?? bet.stage ?? "";
+  if (String(group).toLowerCase().startsWith("grupo")) {
+    return group;
+  }
+  return group ? `Grupo ${group}` : "";
+}
+
+function getBetSubPhaseLabel(bet) {
+  if (getBetPhaseLabel(bet) === GROUP_PHASE) {
+    return getBetGroupLabel(bet);
+  }
+
+  const subPhase = String(bet.sub_phase ?? bet.stage ?? "").toLowerCase();
+
+  if (subPhase.includes("16")) {
+    return "16-avos de Final";
+  }
+  if (subPhase.includes("oitavas")) {
+    return "Oitavas de Final";
+  }
+  if (subPhase.includes("quartas")) {
+    return "Quartas de Final";
+  }
+  if (subPhase.includes("semi")) {
+    return "Semifinal";
+  }
+  if (subPhase.includes("3") || subPhase.includes("terceiro")) {
+    return "Terceiro Lugar";
+  }
+  if (subPhase.includes("final")) {
+    return "Final";
+  }
+
+  return bet.sub_phase ?? bet.stage ?? "";
+}
+
 export function AdminRankingDashboard({ sessionUser }) {
   const [dashboard, setDashboard] = useState(null);
   const [resultForms, setResultForms] = useState({});
@@ -40,6 +102,9 @@ export function AdminRankingDashboard({ sessionUser }) {
   const [deletingMatchId, setDeletingMatchId] = useState("");
   const [updatingMatchId, setUpdatingMatchId] = useState("");
   const [showPaidPoolOnly, setShowPaidPoolOnly] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(ALL_USERS);
+  const [selectedPhase, setSelectedPhase] = useState(ALL_PHASES);
+  const [selectedSubPhase, setSelectedSubPhase] = useState(ALL_SUB_PHASES);
 
   function syncDashboard(nextDashboard) {
     setDashboard(nextDashboard);
@@ -180,6 +245,39 @@ export function AdminRankingDashboard({ sessionUser }) {
     } finally {
       setUpdatingMatchId("");
     }
+  }
+
+  const userFilterOptions = useMemo(
+    () =>
+      [...(dashboard?.users ?? [])].sort((first, second) =>
+        first.name.localeCompare(second.name, "pt-BR", { sensitivity: "base" }),
+      ),
+    [dashboard?.users],
+  );
+  const subPhaseFilterOptions =
+    selectedPhase === GROUP_PHASE
+      ? GROUP_SUB_PHASES
+      : selectedPhase === KNOCKOUT_PHASE
+        ? KNOCKOUT_SUB_PHASES
+        : [];
+  const filteredBets = useMemo(
+    () =>
+      (dashboard?.bets ?? []).filter((bet) => {
+        const userMatches = selectedUser === ALL_USERS || bet.user_id === selectedUser;
+        const phaseMatches = selectedPhase === ALL_PHASES || getBetPhaseLabel(bet) === selectedPhase;
+        const subPhaseMatches =
+          selectedPhase === ALL_PHASES ||
+          selectedSubPhase === ALL_SUB_PHASES ||
+          getBetSubPhaseLabel(bet) === selectedSubPhase;
+
+        return userMatches && phaseMatches && subPhaseMatches;
+      }),
+    [dashboard?.bets, selectedPhase, selectedSubPhase, selectedUser],
+  );
+
+  function handleBetPhaseFilterChange(value) {
+    setSelectedPhase(value);
+    setSelectedSubPhase(ALL_SUB_PHASES);
   }
 
   if (loading) {
@@ -440,6 +538,55 @@ export function AdminRankingDashboard({ sessionUser }) {
               Todos os palpites e pontuacao detalhada
             </h3>
           </div>
+          <div className="panel-strong grid gap-4 px-5 py-5 md:grid-cols-3">
+            <label className="text-xs font-semibold uppercase tracking-[0.22em] text-muted">
+              Usuario
+              <select
+                className="field mt-2"
+                value={selectedUser}
+                onChange={(event) => setSelectedUser(event.target.value)}
+              >
+                <option value={ALL_USERS}>Todos os Usuarios</option>
+                {userFilterOptions.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-[0.22em] text-muted">
+              Fase
+              <select
+                className="field mt-2"
+                value={selectedPhase}
+                onChange={(event) => handleBetPhaseFilterChange(event.target.value)}
+              >
+                <option value={ALL_PHASES}>Todas as Fases</option>
+                <option value={GROUP_PHASE}>{GROUP_PHASE}</option>
+                <option value={KNOCKOUT_PHASE}>{KNOCKOUT_PHASE}</option>
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-[0.22em] text-muted">
+              Sub-fase
+              <select
+                className="field mt-2"
+                value={selectedSubPhase}
+                onChange={(event) => setSelectedSubPhase(event.target.value)}
+                disabled={selectedPhase === ALL_PHASES}
+              >
+                <option value={ALL_SUB_PHASES}>
+                  {selectedPhase === GROUP_PHASE ? "Todos os Grupos" : "Todas as Sub-fases"}
+                </option>
+                {subPhaseFilterOptions.map((subPhase) => (
+                  <option key={subPhase} value={subPhase}>
+                    {subPhase}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="panel overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-line/80">
@@ -454,7 +601,7 @@ export function AdminRankingDashboard({ sessionUser }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">
-                  {dashboard.bets.map((bet) => (
+                  {filteredBets.map((bet) => (
                     <tr key={bet.bet_id} className="bg-panel/40 text-sm">
                       <td className="px-4 py-4 text-ink">{bet.user_name}</td>
                       <td className="px-4 py-4">
@@ -471,6 +618,14 @@ export function AdminRankingDashboard({ sessionUser }) {
                       <td className="px-4 py-4 text-muted">{bet.reason}</td>
                     </tr>
                   ))}
+
+                  {filteredBets.length === 0 ? (
+                    <tr className="bg-panel/40 text-sm text-muted">
+                      <td className="px-4 py-5" colSpan={6}>
+                        Nenhum palpite encontrado para os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
