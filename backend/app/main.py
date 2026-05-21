@@ -498,10 +498,6 @@ def is_match_finished(match: dict[str, Any]) -> bool:
     return match["status"] == "finished" and match["home_score"] is not None and match["away_score"] is not None
 
 
-def is_group_stage_match(match: dict[str, Any]) -> bool:
-    return match.get("phase", "group") == "group"
-
-
 PLACEHOLDER_TEAM_MARKERS = ("grupo", "jogo", "vencedor", "perdedor")
 
 
@@ -512,12 +508,6 @@ def has_placeholder_team(match: dict[str, Any]) -> bool:
         for team_name in team_names
         for marker in PLACEHOLDER_TEAM_MARKERS
     )
-
-
-def is_group_stage_complete(matches: list[dict[str, Any]] | None = None) -> bool:
-    loaded_matches = fetch_all_matches() if matches is None else matches
-    group_matches = [match for match in loaded_matches if is_group_stage_match(match)]
-    return bool(group_matches) and all(is_match_finished(match) for match in group_matches)
 
 
 def get_betting_closes_at(match: dict[str, Any]) -> datetime:
@@ -576,14 +566,6 @@ def get_bet_edit_closed_reason(
         return f"Edicao encerrada: bloqueio de {BET_LOCK_MINUTES} minutos antes do jogo."
 
     return None
-
-
-def is_match_available_for_result_entry(match: dict[str, Any], reference_time: datetime | None = None) -> bool:
-    if is_match_finished(match):
-        return True
-
-    now = reference_time or datetime.now(parse_datetime(match["kickoff_at"]).tzinfo)
-    return parse_datetime(match["kickoff_at"]) <= now
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
@@ -1017,7 +999,7 @@ def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
         "betting_open": is_match_open_for_bet(match),
         "betting_closed_reason": get_betting_closed_reason(match),
         "has_result": is_match_finished(match),
-        "result_entry_allowed": is_match_available_for_result_entry(match),
+        "result_entry_allowed": True,
     }
 
 
@@ -1025,13 +1007,11 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
     users = fetch_all_users()
     matches = fetch_all_matches()
     bets = fetch_all_bets()
-    group_stage_complete = is_group_stage_complete(matches)
     ranking_data = build_ranking(users=users, matches=matches, bets=bets)
 
     return {
         **ranking_data,
         "metadata": {
-            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
         "users": [serialize_user(user) for user in users if user["role"] == "user"],
@@ -1190,7 +1170,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
 
     matches = fetch_all_matches()
     matches_by_id = {match["id"]: match for match in matches}
-    group_stage_complete = is_group_stage_complete(matches)
     user_bets = fetch_bets_by_user(current_user["id"])
     bets_by_match = {bet["match_id"]: bet for bet in user_bets}
     upcoming_matches = []
@@ -1235,7 +1214,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
     return {
         "user": serialize_user(current_user),
         "metadata": {
-            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
         "summary": {
@@ -1501,12 +1479,7 @@ def update_match_result(
     payload: MatchResultUpdateRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
-    match = get_match(match_id)
-    if not is_match_available_for_result_entry(match):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="O placar real so pode ser informado para partidas que ja chegaram ao horario do jogo.",
-        )
+    get_match(match_id)
 
     with db_cursor(commit=True) as cursor:
         cursor.execute(

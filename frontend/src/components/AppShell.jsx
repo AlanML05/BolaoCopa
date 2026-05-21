@@ -18,10 +18,17 @@ export function AppShell({ sessionUser, onLogout, children }) {
         <header className="panel mb-8 flex flex-col gap-6 px-6 py-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <p className="eyebrow">World Cup Pool</p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <h1 className="font-display text-2xl font-semibold tracking-[0.03em] text-ink">
-                Bolao Copa 2026
-              </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3">
+                <img
+                  src="/logo.png"
+                  alt="Bolao Copa 2026"
+                  className="h-8 w-auto shrink-0 object-contain"
+                />
+                <h1 className="font-display text-2xl font-semibold tracking-[0.03em] text-ink">
+                  Bolao Copa 2026
+                </h1>
+              </div>
               <span className="data-pill">Controle manual</span>
             </div>
             <p className="subtle-copy mt-3 max-w-xl">

@@ -133,16 +133,10 @@ export function MatchResultManager({
                 className={`data-pill ${
                   match.has_result
                     ? "border-success/20 text-success"
-                    : !match.result_entry_allowed
-                      ? "border-line/80 text-muted"
                     : "border-warning/20 text-warning"
                 }`}
               >
-                {match.has_result
-                  ? "Finalizado"
-                  : match.result_entry_allowed
-                    ? "Sem resultado"
-                    : "Aguardando kickoff"}
+                {match.has_result ? "Finalizado" : "Sem resultado"}
               </span>
             </div>
 
@@ -165,7 +159,7 @@ export function MatchResultManager({
                   className="field text-center text-xl font-semibold"
                   value={forms[match.id]?.homeScore ?? ""}
                   onChange={(event) => onFieldChange(match.id, "homeScore", event.target.value)}
-                  disabled={busyMatchId === match.id || !match.result_entry_allowed}
+                  disabled={busyMatchId === match.id}
                 />
               </div>
 
@@ -182,7 +176,7 @@ export function MatchResultManager({
                   className="field text-center text-xl font-semibold"
                   value={forms[match.id]?.awayScore ?? ""}
                   onChange={(event) => onFieldChange(match.id, "awayScore", event.target.value)}
-                  disabled={busyMatchId === match.id || !match.result_entry_allowed}
+                  disabled={busyMatchId === match.id}
                 />
               </div>
             </div>
@@ -191,11 +185,9 @@ export function MatchResultManager({
               type="button"
               className="button-primary mt-5 w-full"
               onClick={() => onSave(match.id)}
-              disabled={busyMatchId === match.id || !match.result_entry_allowed}
+              disabled={busyMatchId === match.id}
             >
-              {!match.result_entry_allowed
-                ? "Disponivel apos o kickoff"
-                : busyMatchId === match.id
+              {busyMatchId === match.id
                 ? "Salvando..."
                 : match.has_result
                   ? "Atualizar resultado"
