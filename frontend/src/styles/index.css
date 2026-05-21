@@ -10,13 +10,18 @@
   html {
     min-height: 100%;
     background:
-      radial-gradient(circle at top left, rgba(139, 213, 255, 0.12), transparent 28%),
-      linear-gradient(180deg, #05070a 0%, #090f17 48%, #05080c 100%);
+      linear-gradient(90deg, rgba(2, 6, 23, 0.9) 0%, rgba(2, 6, 23, 0.34) 34%, rgba(2, 6, 23, 0.34) 66%, rgba(2, 6, 23, 0.9) 100%),
+      linear-gradient(180deg, rgba(2, 6, 23, 0.78) 0%, rgba(2, 6, 23, 0.42) 42%, rgba(2, 6, 23, 0.82) 100%),
+      url("/tunel.jpg") center center / cover fixed no-repeat,
+      #020617;
   }
 
   body {
     min-height: 100vh;
-    background: transparent;
+    background:
+      radial-gradient(circle at top left, rgba(139, 213, 255, 0.12), transparent 28%),
+      radial-gradient(circle at 50% 28%, rgba(250, 204, 21, 0.08), transparent 30%),
+      transparent;
     color: #edf3fb;
     font-family: Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
     text-rendering: optimizeLegibility;

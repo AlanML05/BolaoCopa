@@ -102,6 +102,9 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <AppRoutes />
+        <footer className="pointer-events-none fixed bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/55 px-4 py-1.5 text-center text-[0.68rem] font-medium tracking-[0.08em] text-slate-300/80 shadow-lg shadow-black/30 backdrop-blur-md">
+          © Direitos Autorais de Alan Martins Leandro
+        </footer>
       </AuthProvider>
     </BrowserRouter>
   );
