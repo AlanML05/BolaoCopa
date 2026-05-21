@@ -498,10 +498,6 @@ def is_match_finished(match: dict[str, Any]) -> bool:
     return match["status"] == "finished" and match["home_score"] is not None and match["away_score"] is not None
 
 
-def is_group_stage_match(match: dict[str, Any]) -> bool:
-    return match.get("phase", "group") == "group"
-
-
 PLACEHOLDER_TEAM_MARKERS = ("grupo", "jogo", "vencedor", "perdedor")
 
 
@@ -512,12 +508,6 @@ def has_placeholder_team(match: dict[str, Any]) -> bool:
         for team_name in team_names
         for marker in PLACEHOLDER_TEAM_MARKERS
     )
-
-
-def is_group_stage_complete(matches: list[dict[str, Any]] | None = None) -> bool:
-    loaded_matches = fetch_all_matches() if matches is None else matches
-    group_matches = [match for match in loaded_matches if is_group_stage_match(match)]
-    return bool(group_matches) and all(is_match_finished(match) for match in group_matches)
 
 
 def get_betting_closes_at(match: dict[str, Any]) -> datetime:
@@ -1025,13 +1015,11 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
     users = fetch_all_users()
     matches = fetch_all_matches()
     bets = fetch_all_bets()
-    group_stage_complete = is_group_stage_complete(matches)
     ranking_data = build_ranking(users=users, matches=matches, bets=bets)
 
     return {
         **ranking_data,
         "metadata": {
-            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
         "users": [serialize_user(user) for user in users if user["role"] == "user"],
@@ -1190,7 +1178,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
 
     matches = fetch_all_matches()
     matches_by_id = {match["id"]: match for match in matches}
-    group_stage_complete = is_group_stage_complete(matches)
     user_bets = fetch_bets_by_user(current_user["id"])
     bets_by_match = {bet["match_id"]: bet for bet in user_bets}
     upcoming_matches = []
@@ -1235,7 +1222,6 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
     return {
         "user": serialize_user(current_user),
         "metadata": {
-            "group_stage_complete": group_stage_complete,
             "bet_lock_minutes": BET_LOCK_MINUTES,
         },
         "summary": {
