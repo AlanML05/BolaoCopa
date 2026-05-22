@@ -9,6 +9,14 @@ function hasPlaceholderTeam(match) {
   );
 }
 
+function getTournamentPhaseLabel(match) {
+  return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
+}
+
+function getSubPhaseLabel(match) {
+  return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
+}
+
 export function MatchBetCard({
   match,
   formState,
@@ -25,6 +33,8 @@ export function MatchBetCard({
     hasValidKickoff && kickoffTime - currentTime <= lockWindowMs;
   const isScheduled = match.status === "scheduled";
   const waitingForDefinedTeams = hasPlaceholderTeam(match);
+  const tournamentPhaseLabel = getTournamentPhaseLabel(match);
+  const subPhaseLabel = getSubPhaseLabel(match);
   const bettingEnabled =
     isScheduled && hasValidKickoff && !closedByClientClock && !waitingForDefinedTeams;
   const closedReason =
@@ -46,6 +56,10 @@ export function MatchBetCard({
           <p className="mt-2 text-sm text-muted">
             {formatMatchDateTime(match.kickoff_at)} - {match.stadium}
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="data-pill border-accent/15 text-accent">{tournamentPhaseLabel}</span>
+            <span className="data-pill">{subPhaseLabel}</span>
+          </div>
         </div>
         <span
           className={`data-pill ${

@@ -7,8 +7,20 @@ import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
-const phaseOptions = ["Fase de Grupos", "Fase Mata-Mata"];
 const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
+const HISTORY_PHASE_ALL = "Todas as Fases";
+const HISTORY_PHASE_OPTIONS = [HISTORY_PHASE_ALL, "Fase de Grupos", "Fase Mata-Mata"];
+const GROUP_SUB_PHASE_OPTIONS = Array.from({ length: 12 }, (_, index) =>
+  `Grupo ${String.fromCharCode(65 + index)}`,
+);
+const KNOCKOUT_SUB_PHASE_OPTIONS = [
+  "16-avos de final",
+  "Oitavas de final",
+  "Quartas de final",
+  "Semifinal",
+  "Disputa do 3º Lugar",
+  "Final",
+];
 
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
@@ -72,13 +84,33 @@ function isBetEditable(match, currentTime) {
   );
 }
 
+function isBlankScore(value) {
+  return value === null || value === undefined || value === "";
+}
+
+function hasIncompleteBet(match) {
+  const existingBet = match.existing_bet;
+
+  return (
+    !existingBet ||
+    isBlankScore(existingBet.predicted_home_score) ||
+    isBlankScore(existingBet.predicted_away_score)
+  );
+}
+
+function getSortableKickoff(match) {
+  const kickoffTime = Date.parse(match.kickoff_at);
+  return Number.isFinite(kickoffTime) ? kickoffTime : Number.MAX_SAFE_INTEGER;
+}
+
 export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
   const [forms, setForms] = useState({});
   const [editForms, setEditForms] = useState({});
-  const [selectedPhase, setSelectedPhase] = useState("Fase de Grupos");
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedSubPhase, setSelectedSubPhase] = useState("");
+  const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const [selectedHistoryPhase, setSelectedHistoryPhase] = useState(HISTORY_PHASE_ALL);
+  const [selectedHistorySubPhase, setSelectedHistorySubPhase] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
@@ -127,54 +159,92 @@ export function MyBetsPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
-  const filterableMatches = useMemo(() => {
-    return upcomingMatches.filter((match) => getTournamentPhaseLabel(match) === selectedPhase);
-  }, [selectedPhase, upcomingMatches]);
   const dateOptions = useMemo(() => {
-    return Array.from(new Set(filterableMatches.map(getMatchDateKey))).sort((first, second) =>
+    return Array.from(new Set(upcomingMatches.map(getMatchDateKey))).sort((first, second) =>
       first.localeCompare(second, "pt-BR", { numeric: true }),
     );
-  }, [filterableMatches]);
-  const subPhaseOptions = useMemo(() => {
+  }, [upcomingMatches]);
+  const visibleMatches = useMemo(() => {
     if (!selectedDate) {
       return [];
     }
 
-    const matchesOnDate = filterableMatches.filter(
-      (match) => getMatchDateKey(match) === selectedDate,
-    );
-    return Array.from(new Set(matchesOnDate.map(getSubPhaseLabel))).sort((first, second) =>
-      first.localeCompare(second, "pt-BR", { numeric: true }),
-    );
-  }, [filterableMatches, selectedDate]);
-  const visibleMatches = useMemo(() => {
-    if (!selectedDate || !selectedSubPhase) {
-      return [];
+    return upcomingMatches
+      .filter((match) => getMatchDateKey(match) === selectedDate)
+      .sort((firstMatch, secondMatch) => {
+        const kickoffDifference =
+          getSortableKickoff(firstMatch) - getSortableKickoff(secondMatch);
+
+        if (kickoffDifference !== 0) {
+          return kickoffDifference;
+        }
+
+        return getSubPhaseLabel(firstMatch).localeCompare(getSubPhaseLabel(secondMatch), "pt-BR", {
+          numeric: true,
+        });
+      });
+  }, [selectedDate, upcomingMatches]);
+  const pendingMatches = useMemo(() => {
+    return upcomingMatches
+      .filter((match) => hasIncompleteBet(match) && isBetEditable(match, currentTime))
+      .sort((firstMatch, secondMatch) => {
+        const kickoffDifference =
+          getSortableKickoff(firstMatch) - getSortableKickoff(secondMatch);
+
+        if (kickoffDifference !== 0) {
+          return kickoffDifference;
+        }
+
+        const firstGroupLabel = getSubPhaseLabel(firstMatch);
+        const secondGroupLabel = getSubPhaseLabel(secondMatch);
+
+        return firstGroupLabel.localeCompare(secondGroupLabel, "pt-BR", { numeric: true });
+      });
+  }, [currentTime, upcomingMatches]);
+  const historySubPhaseOptions = useMemo(() => {
+    if (selectedHistoryPhase === "Fase de Grupos") {
+      return GROUP_SUB_PHASE_OPTIONS;
     }
 
-    return filterableMatches.filter(
-      (match) =>
-        getMatchDateKey(match) === selectedDate && getSubPhaseLabel(match) === selectedSubPhase,
-    );
-  }, [filterableMatches, selectedDate, selectedSubPhase]);
+    if (selectedHistoryPhase === "Fase Mata-Mata") {
+      return KNOCKOUT_SUB_PHASE_OPTIONS;
+    }
 
-  useEffect(() => {
-    setSelectedDate("");
-    setSelectedSubPhase("");
-  }, [selectedPhase]);
+    return [];
+  }, [selectedHistoryPhase]);
+  const filteredSubmittedBets = useMemo(() => {
+    const submittedBets = overview?.submitted_bets ?? [];
+
+    return submittedBets.filter((bet) => {
+      const matchPhase = getTournamentPhaseLabel(bet.match);
+      const matchSubPhase = getSubPhaseLabel(bet.match);
+      const phaseMatches =
+        selectedHistoryPhase === HISTORY_PHASE_ALL || matchPhase === selectedHistoryPhase;
+      const subPhaseMatches =
+        !selectedHistorySubPhase || matchSubPhase === selectedHistorySubPhase;
+
+      return phaseMatches && subPhaseMatches;
+    });
+  }, [overview?.submitted_bets, selectedHistoryPhase, selectedHistorySubPhase]);
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
       setSelectedDate("");
-      setSelectedSubPhase("");
     }
   }, [dateOptions, selectedDate]);
 
   useEffect(() => {
-    if (selectedSubPhase && !subPhaseOptions.includes(selectedSubPhase)) {
-      setSelectedSubPhase("");
+    setSelectedHistorySubPhase("");
+  }, [selectedHistoryPhase]);
+
+  useEffect(() => {
+    if (
+      selectedHistorySubPhase &&
+      !historySubPhaseOptions.includes(selectedHistorySubPhase)
+    ) {
+      setSelectedHistorySubPhase("");
     }
-  }, [selectedSubPhase, subPhaseOptions]);
+  }, [historySubPhaseOptions, selectedHistorySubPhase]);
 
   function handleFieldChange(matchId, field, value) {
     setForms((current) => ({
@@ -311,7 +381,7 @@ export function MyBetsPage({ sessionUser }) {
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
             <p className="subtle-copy mt-3">
-              Escolha uma fase, data e sub-fase para consultar os jogos e registrar seus palpites.
+              Escolha o dia do jogo para consultar as partidas e registrar seus palpites.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -366,42 +436,43 @@ export function MyBetsPage({ sessionUser }) {
               Escolha os jogos
             </h3>
           </div>
-          <p className="text-sm text-muted">
-            Os jogos aparecem depois que voce selecionar a fase, data e sub-fase.
-          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <p className="text-sm text-muted">
+              {showOnlyPending
+                ? "Mostrando todos os jogos abertos que ainda precisam de palpite."
+                : "Os jogos aparecem depois que voce selecionar uma data."}
+            </p>
+            <button
+              type="button"
+              aria-pressed={showOnlyPending}
+              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                showOnlyPending
+                  ? "border-warning/50 bg-warning/15 text-warning shadow-[0_0_24px_rgba(245,158,11,0.12)]"
+                  : "border-accent/35 bg-accent/10 text-accent hover:border-accent/70 hover:bg-accent/15"
+              }`}
+              onClick={() => setShowOnlyPending((current) => !current)}
+            >
+              ⚽ Ver Jogos Pendentes
+            </button>
+          </div>
         </div>
 
         <div className="panel px-5 py-5">
-          <div className="mb-5 flex flex-wrap gap-2">
-            {phaseOptions.map((phase) => {
-              const isSelected = selectedPhase === phase;
-              return (
-                <button
-                  key={phase}
-                  type="button"
-                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                    isSelected
-                      ? "border-accent/60 bg-accent/10 text-accent"
-                      : "border-line/80 bg-canvas/70 text-muted hover:border-accent/30 hover:text-ink"
-                  }`}
-                  onClick={() => setSelectedPhase(phase)}
-                >
-                  {phase}
-                </button>
-              );
-            })}
-          </div>
+          {showOnlyPending ? (
+            <div className="mb-5 rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+              Modo pendentes ativo: a data fica pausada enquanto buscamos todos os jogos
+              cadastrados, abertos e sem palpite salvo.
+            </div>
+          ) : null}
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className={`grid gap-4 md:max-w-md ${showOnlyPending ? "opacity-55" : ""}`}>
             <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-              Data
+              Dia do jogo
               <select
                 className="field mt-2"
                 value={selectedDate}
-                onChange={(event) => {
-                  setSelectedDate(event.target.value);
-                  setSelectedSubPhase("");
-                }}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                disabled={showOnlyPending}
               >
                 <option value="">Selecione uma data</option>
                 {dateOptions.map((dateKey) => (
@@ -411,38 +482,43 @@ export function MyBetsPage({ sessionUser }) {
                 ))}
               </select>
             </label>
-
-            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-              Grupo/Sub-fase
-              <select
-                className="field mt-2"
-                value={selectedSubPhase}
-                onChange={(event) => setSelectedSubPhase(event.target.value)}
-                disabled={!selectedDate}
-              >
-                <option value="">Selecione uma sub-fase</option>
-                {subPhaseOptions.map((subPhase) => (
-                  <option key={subPhase} value={subPhase}>
-                    {subPhase}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
 
-        {filterableMatches.length === 0 ? (
+        {showOnlyPending ? (
+          pendingMatches.length > 0 ? (
+            <div className="grid gap-5 xl:grid-cols-2">
+              {pendingMatches.map((match) => (
+                <MatchBetCard
+                  key={match.id}
+                  match={match}
+                  formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                  currentTime={currentTime}
+                  submitting={savingMatchId === match.id}
+                  onFieldChange={handleFieldChange}
+                  onSubmit={handleSubmit}
+                />
+              ))}
+            </div>
+          ) : (
+            <section className="panel border-success/20 bg-success/5 px-6 py-8">
+              <p className="text-sm font-semibold text-success">
+                🎉 Tudo certo por aqui! Você já palpitou em todos os jogos disponíveis.
+              </p>
+            </section>
+          )
+        ) : upcomingMatches.length === 0 ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
             <p className="mt-2 text-sm text-muted">
-              Quando partidas desta fase forem cadastradas, elas aparecerao aqui.
+              Quando partidas forem cadastradas, elas aparecerao aqui.
             </p>
           </section>
-        ) : !selectedDate || !selectedSubPhase ? (
+        ) : !selectedDate ? (
           <section className="panel px-6 py-8">
-            <p className="text-sm font-semibold text-ink">Selecione data e sub-fase.</p>
+            <p className="text-sm font-semibold text-ink">Selecione uma data.</p>
             <p className="mt-2 text-sm text-muted">
-              Use os filtros acima para carregar somente os jogos que deseja palpitar.
+              Use o filtro acima para carregar todos os jogos daquele dia.
             </p>
           </section>
         ) : visibleMatches.length > 0 ? (
@@ -463,22 +539,71 @@ export function MyBetsPage({ sessionUser }) {
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
             <p className="mt-2 text-sm text-muted">
-              Escolha outra data ou sub-fase para consultar os jogos disponiveis.
+              Escolha outra data para consultar os jogos disponiveis.
             </p>
           </section>
         )}
       </section>
 
       <section className="space-y-4">
-        <div>
-          <p className="eyebrow">Historico</p>
-          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-            Palpites ja registrados
-          </h3>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="eyebrow">Historico</p>
+            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+              Palpites ja registrados
+            </h3>
+            <p className="mt-3 w-fit rounded-2xl border border-accent/15 bg-accent/5 px-3 py-2 text-sm text-slate-300">
+              💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
+            </p>
+          </div>
+          <p className="max-w-xl text-sm text-muted">
+            Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
+            estiver liberado.
+          </p>
+        </div>
+
+        <div className="panel px-5 py-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Fase
+              <select
+                className="field mt-2"
+                value={selectedHistoryPhase}
+                onChange={(event) => setSelectedHistoryPhase(event.target.value)}
+              >
+                {HISTORY_PHASE_OPTIONS.map((phase) => (
+                  <option key={phase} value={phase}>
+                    {phase}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Sub-fase
+              <select
+                className="field mt-2"
+                value={selectedHistorySubPhase}
+                onChange={(event) => setSelectedHistorySubPhase(event.target.value)}
+                disabled={selectedHistoryPhase === HISTORY_PHASE_ALL}
+              >
+                <option value="">
+                  {selectedHistoryPhase === HISTORY_PHASE_ALL
+                    ? "Selecione uma fase primeiro"
+                    : "Todas as sub-fases"}
+                </option>
+                {historySubPhaseOptions.map((subPhase) => (
+                  <option key={subPhase} value={subPhase}>
+                    {subPhase}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {overview.submitted_bets.map((bet) => {
+          {filteredSubmittedBets.map((bet) => {
             const editable = isBetEditable(bet.match, currentTime);
             const isEditing = editingBetId === bet.bet_id;
             const editForm = editForms[bet.bet_id] ?? {
@@ -617,6 +742,13 @@ export function MyBetsPage({ sessionUser }) {
               <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
               <p className="mt-2 text-sm text-muted">
                 Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
+              </p>
+            </section>
+          ) : filteredSubmittedBets.length === 0 ? (
+            <section className="panel px-6 py-8">
+              <p className="text-sm font-semibold text-ink">Nenhum palpite neste filtro.</p>
+              <p className="mt-2 text-sm text-muted">
+                Ajuste a fase ou sub-fase para localizar outros palpites registrados.
               </p>
             </section>
           ) : null}
