@@ -552,6 +552,9 @@ export function MyBetsPage({ sessionUser }) {
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
               Palpites ja registrados
             </h3>
+            <p className="mt-3 w-fit rounded-2xl border border-accent/15 bg-accent/5 px-3 py-2 text-sm text-slate-300">
+              💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
+            </p>
           </div>
           <p className="max-w-xl text-sm text-muted">
             Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
