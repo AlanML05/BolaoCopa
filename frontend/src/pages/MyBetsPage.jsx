@@ -8,6 +8,19 @@ import { formatDateTime, formatScore } from "../services/formatters";
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
 const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
+const HISTORY_PHASE_ALL = "Todas as Fases";
+const HISTORY_PHASE_OPTIONS = [HISTORY_PHASE_ALL, "Fase de Grupos", "Fase Mata-Mata"];
+const GROUP_SUB_PHASE_OPTIONS = Array.from({ length: 12 }, (_, index) =>
+  `Grupo ${String.fromCharCode(65 + index)}`,
+);
+const KNOCKOUT_SUB_PHASE_OPTIONS = [
+  "16-avos de final",
+  "Oitavas de final",
+  "Quartas de final",
+  "Semifinal",
+  "Disputa do 3º Lugar",
+  "Final",
+];
 
 function createDefaultForms(matches) {
   return matches.reduce((accumulator, match) => {
@@ -45,6 +58,10 @@ function formatDateLabel(dateKey) {
 
 function getSubPhaseLabel(match) {
   return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
+}
+
+function getTournamentPhaseLabel(match) {
+  return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
 }
 
 function hasPlaceholderTeam(match) {
@@ -92,6 +109,8 @@ export function MyBetsPage({ sessionUser }) {
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
   const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const [selectedHistoryPhase, setSelectedHistoryPhase] = useState(HISTORY_PHASE_ALL);
+  const [selectedHistorySubPhase, setSelectedHistorySubPhase] = useState("");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
@@ -182,12 +201,50 @@ export function MyBetsPage({ sessionUser }) {
         return firstGroupLabel.localeCompare(secondGroupLabel, "pt-BR", { numeric: true });
       });
   }, [currentTime, upcomingMatches]);
+  const historySubPhaseOptions = useMemo(() => {
+    if (selectedHistoryPhase === "Fase de Grupos") {
+      return GROUP_SUB_PHASE_OPTIONS;
+    }
+
+    if (selectedHistoryPhase === "Fase Mata-Mata") {
+      return KNOCKOUT_SUB_PHASE_OPTIONS;
+    }
+
+    return [];
+  }, [selectedHistoryPhase]);
+  const filteredSubmittedBets = useMemo(() => {
+    const submittedBets = overview?.submitted_bets ?? [];
+
+    return submittedBets.filter((bet) => {
+      const matchPhase = getTournamentPhaseLabel(bet.match);
+      const matchSubPhase = getSubPhaseLabel(bet.match);
+      const phaseMatches =
+        selectedHistoryPhase === HISTORY_PHASE_ALL || matchPhase === selectedHistoryPhase;
+      const subPhaseMatches =
+        !selectedHistorySubPhase || matchSubPhase === selectedHistorySubPhase;
+
+      return phaseMatches && subPhaseMatches;
+    });
+  }, [overview?.submitted_bets, selectedHistoryPhase, selectedHistorySubPhase]);
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
       setSelectedDate("");
     }
   }, [dateOptions, selectedDate]);
+
+  useEffect(() => {
+    setSelectedHistorySubPhase("");
+  }, [selectedHistoryPhase]);
+
+  useEffect(() => {
+    if (
+      selectedHistorySubPhase &&
+      !historySubPhaseOptions.includes(selectedHistorySubPhase)
+    ) {
+      setSelectedHistorySubPhase("");
+    }
+  }, [historySubPhaseOptions, selectedHistorySubPhase]);
 
   function handleFieldChange(matchId, field, value) {
     setForms((current) => ({
@@ -489,15 +546,61 @@ export function MyBetsPage({ sessionUser }) {
       </section>
 
       <section className="space-y-4">
-        <div>
-          <p className="eyebrow">Historico</p>
-          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-            Palpites ja registrados
-          </h3>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="eyebrow">Historico</p>
+            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+              Palpites ja registrados
+            </h3>
+          </div>
+          <p className="max-w-xl text-sm text-muted">
+            Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
+            estiver liberado.
+          </p>
+        </div>
+
+        <div className="panel px-5 py-5">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Fase
+              <select
+                className="field mt-2"
+                value={selectedHistoryPhase}
+                onChange={(event) => setSelectedHistoryPhase(event.target.value)}
+              >
+                {HISTORY_PHASE_OPTIONS.map((phase) => (
+                  <option key={phase} value={phase}>
+                    {phase}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+              Sub-fase
+              <select
+                className="field mt-2"
+                value={selectedHistorySubPhase}
+                onChange={(event) => setSelectedHistorySubPhase(event.target.value)}
+                disabled={selectedHistoryPhase === HISTORY_PHASE_ALL}
+              >
+                <option value="">
+                  {selectedHistoryPhase === HISTORY_PHASE_ALL
+                    ? "Selecione uma fase primeiro"
+                    : "Todas as sub-fases"}
+                </option>
+                {historySubPhaseOptions.map((subPhase) => (
+                  <option key={subPhase} value={subPhase}>
+                    {subPhase}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          {overview.submitted_bets.map((bet) => {
+          {filteredSubmittedBets.map((bet) => {
             const editable = isBetEditable(bet.match, currentTime);
             const isEditing = editingBetId === bet.bet_id;
             const editForm = editForms[bet.bet_id] ?? {
@@ -636,6 +739,13 @@ export function MyBetsPage({ sessionUser }) {
               <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
               <p className="mt-2 text-sm text-muted">
                 Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
+              </p>
+            </section>
+          ) : filteredSubmittedBets.length === 0 ? (
+            <section className="panel px-6 py-8">
+              <p className="text-sm font-semibold text-ink">Nenhum palpite neste filtro.</p>
+              <p className="mt-2 text-sm text-muted">
+                Ajuste a fase ou sub-fase para localizar outros palpites registrados.
               </p>
             </section>
           ) : null}
