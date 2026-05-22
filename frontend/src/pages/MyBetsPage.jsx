@@ -7,7 +7,6 @@ import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
-const phaseOptions = ["Fase de Grupos", "Fase Mata-Mata"];
 const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
 
 function createDefaultForms(matches) {
@@ -48,10 +47,6 @@ function getSubPhaseLabel(match) {
   return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
 }
 
-function getTournamentPhaseLabel(match) {
-  return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
-}
-
 function hasPlaceholderTeam(match) {
   return [match.home_team, match.away_team].some((teamName) =>
     PLACEHOLDER_TEAM_TERMS.some((term) => String(teamName ?? "").toLowerCase().includes(term)),
@@ -72,13 +67,31 @@ function isBetEditable(match, currentTime) {
   );
 }
 
+function isBlankScore(value) {
+  return value === null || value === undefined || value === "";
+}
+
+function hasIncompleteBet(match) {
+  const existingBet = match.existing_bet;
+
+  return (
+    !existingBet ||
+    isBlankScore(existingBet.predicted_home_score) ||
+    isBlankScore(existingBet.predicted_away_score)
+  );
+}
+
+function getSortableKickoff(match) {
+  const kickoffTime = Date.parse(match.kickoff_at);
+  return Number.isFinite(kickoffTime) ? kickoffTime : Number.MAX_SAFE_INTEGER;
+}
+
 export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
   const [forms, setForms] = useState({});
   const [editForms, setEditForms] = useState({});
-  const [selectedPhase, setSelectedPhase] = useState("Fase de Grupos");
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedSubPhase, setSelectedSubPhase] = useState("");
+  const [showOnlyPending, setShowOnlyPending] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
@@ -127,54 +140,54 @@ export function MyBetsPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
-  const filterableMatches = useMemo(() => {
-    return upcomingMatches.filter((match) => getTournamentPhaseLabel(match) === selectedPhase);
-  }, [selectedPhase, upcomingMatches]);
   const dateOptions = useMemo(() => {
-    return Array.from(new Set(filterableMatches.map(getMatchDateKey))).sort((first, second) =>
+    return Array.from(new Set(upcomingMatches.map(getMatchDateKey))).sort((first, second) =>
       first.localeCompare(second, "pt-BR", { numeric: true }),
     );
-  }, [filterableMatches]);
-  const subPhaseOptions = useMemo(() => {
+  }, [upcomingMatches]);
+  const visibleMatches = useMemo(() => {
     if (!selectedDate) {
       return [];
     }
 
-    const matchesOnDate = filterableMatches.filter(
-      (match) => getMatchDateKey(match) === selectedDate,
-    );
-    return Array.from(new Set(matchesOnDate.map(getSubPhaseLabel))).sort((first, second) =>
-      first.localeCompare(second, "pt-BR", { numeric: true }),
-    );
-  }, [filterableMatches, selectedDate]);
-  const visibleMatches = useMemo(() => {
-    if (!selectedDate || !selectedSubPhase) {
-      return [];
-    }
+    return upcomingMatches
+      .filter((match) => getMatchDateKey(match) === selectedDate)
+      .sort((firstMatch, secondMatch) => {
+        const kickoffDifference =
+          getSortableKickoff(firstMatch) - getSortableKickoff(secondMatch);
 
-    return filterableMatches.filter(
-      (match) =>
-        getMatchDateKey(match) === selectedDate && getSubPhaseLabel(match) === selectedSubPhase,
-    );
-  }, [filterableMatches, selectedDate, selectedSubPhase]);
+        if (kickoffDifference !== 0) {
+          return kickoffDifference;
+        }
 
-  useEffect(() => {
-    setSelectedDate("");
-    setSelectedSubPhase("");
-  }, [selectedPhase]);
+        return getSubPhaseLabel(firstMatch).localeCompare(getSubPhaseLabel(secondMatch), "pt-BR", {
+          numeric: true,
+        });
+      });
+  }, [selectedDate, upcomingMatches]);
+  const pendingMatches = useMemo(() => {
+    return upcomingMatches
+      .filter((match) => hasIncompleteBet(match) && isBetEditable(match, currentTime))
+      .sort((firstMatch, secondMatch) => {
+        const kickoffDifference =
+          getSortableKickoff(firstMatch) - getSortableKickoff(secondMatch);
+
+        if (kickoffDifference !== 0) {
+          return kickoffDifference;
+        }
+
+        const firstGroupLabel = getSubPhaseLabel(firstMatch);
+        const secondGroupLabel = getSubPhaseLabel(secondMatch);
+
+        return firstGroupLabel.localeCompare(secondGroupLabel, "pt-BR", { numeric: true });
+      });
+  }, [currentTime, upcomingMatches]);
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
       setSelectedDate("");
-      setSelectedSubPhase("");
     }
   }, [dateOptions, selectedDate]);
-
-  useEffect(() => {
-    if (selectedSubPhase && !subPhaseOptions.includes(selectedSubPhase)) {
-      setSelectedSubPhase("");
-    }
-  }, [selectedSubPhase, subPhaseOptions]);
 
   function handleFieldChange(matchId, field, value) {
     setForms((current) => ({
@@ -311,7 +324,7 @@ export function MyBetsPage({ sessionUser }) {
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
             <p className="subtle-copy mt-3">
-              Escolha uma fase, data e sub-fase para consultar os jogos e registrar seus palpites.
+              Escolha o dia do jogo para consultar as partidas e registrar seus palpites.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -366,42 +379,43 @@ export function MyBetsPage({ sessionUser }) {
               Escolha os jogos
             </h3>
           </div>
-          <p className="text-sm text-muted">
-            Os jogos aparecem depois que voce selecionar a fase, data e sub-fase.
-          </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <p className="text-sm text-muted">
+              {showOnlyPending
+                ? "Mostrando todos os jogos abertos que ainda precisam de palpite."
+                : "Os jogos aparecem depois que voce selecionar uma data."}
+            </p>
+            <button
+              type="button"
+              aria-pressed={showOnlyPending}
+              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                showOnlyPending
+                  ? "border-warning/50 bg-warning/15 text-warning shadow-[0_0_24px_rgba(245,158,11,0.12)]"
+                  : "border-accent/35 bg-accent/10 text-accent hover:border-accent/70 hover:bg-accent/15"
+              }`}
+              onClick={() => setShowOnlyPending((current) => !current)}
+            >
+              ⚽ Ver Jogos Pendentes
+            </button>
+          </div>
         </div>
 
         <div className="panel px-5 py-5">
-          <div className="mb-5 flex flex-wrap gap-2">
-            {phaseOptions.map((phase) => {
-              const isSelected = selectedPhase === phase;
-              return (
-                <button
-                  key={phase}
-                  type="button"
-                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
-                    isSelected
-                      ? "border-accent/60 bg-accent/10 text-accent"
-                      : "border-line/80 bg-canvas/70 text-muted hover:border-accent/30 hover:text-ink"
-                  }`}
-                  onClick={() => setSelectedPhase(phase)}
-                >
-                  {phase}
-                </button>
-              );
-            })}
-          </div>
+          {showOnlyPending ? (
+            <div className="mb-5 rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+              Modo pendentes ativo: a data fica pausada enquanto buscamos todos os jogos
+              cadastrados, abertos e sem palpite salvo.
+            </div>
+          ) : null}
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className={`grid gap-4 md:max-w-md ${showOnlyPending ? "opacity-55" : ""}`}>
             <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-              Data
+              Dia do jogo
               <select
                 className="field mt-2"
                 value={selectedDate}
-                onChange={(event) => {
-                  setSelectedDate(event.target.value);
-                  setSelectedSubPhase("");
-                }}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                disabled={showOnlyPending}
               >
                 <option value="">Selecione uma data</option>
                 {dateOptions.map((dateKey) => (
@@ -411,38 +425,43 @@ export function MyBetsPage({ sessionUser }) {
                 ))}
               </select>
             </label>
-
-            <label className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-              Grupo/Sub-fase
-              <select
-                className="field mt-2"
-                value={selectedSubPhase}
-                onChange={(event) => setSelectedSubPhase(event.target.value)}
-                disabled={!selectedDate}
-              >
-                <option value="">Selecione uma sub-fase</option>
-                {subPhaseOptions.map((subPhase) => (
-                  <option key={subPhase} value={subPhase}>
-                    {subPhase}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
 
-        {filterableMatches.length === 0 ? (
+        {showOnlyPending ? (
+          pendingMatches.length > 0 ? (
+            <div className="grid gap-5 xl:grid-cols-2">
+              {pendingMatches.map((match) => (
+                <MatchBetCard
+                  key={match.id}
+                  match={match}
+                  formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                  currentTime={currentTime}
+                  submitting={savingMatchId === match.id}
+                  onFieldChange={handleFieldChange}
+                  onSubmit={handleSubmit}
+                />
+              ))}
+            </div>
+          ) : (
+            <section className="panel border-success/20 bg-success/5 px-6 py-8">
+              <p className="text-sm font-semibold text-success">
+                🎉 Tudo certo por aqui! Você já palpitou em todos os jogos disponíveis.
+              </p>
+            </section>
+          )
+        ) : upcomingMatches.length === 0 ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
             <p className="mt-2 text-sm text-muted">
-              Quando partidas desta fase forem cadastradas, elas aparecerao aqui.
+              Quando partidas forem cadastradas, elas aparecerao aqui.
             </p>
           </section>
-        ) : !selectedDate || !selectedSubPhase ? (
+        ) : !selectedDate ? (
           <section className="panel px-6 py-8">
-            <p className="text-sm font-semibold text-ink">Selecione data e sub-fase.</p>
+            <p className="text-sm font-semibold text-ink">Selecione uma data.</p>
             <p className="mt-2 text-sm text-muted">
-              Use os filtros acima para carregar somente os jogos que deseja palpitar.
+              Use o filtro acima para carregar todos os jogos daquele dia.
             </p>
           </section>
         ) : visibleMatches.length > 0 ? (
@@ -463,7 +482,7 @@ export function MyBetsPage({ sessionUser }) {
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
             <p className="mt-2 text-sm text-muted">
-              Escolha outra data ou sub-fase para consultar os jogos disponiveis.
+              Escolha outra data para consultar os jogos disponiveis.
             </p>
           </section>
         )}
