@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 
 import { MatchManager } from "../components/MatchManager";
 import { MatchResultManager } from "../components/MatchResultManager";
@@ -91,12 +92,18 @@ function getBetSubPhaseLabel(bet) {
   return bet.sub_phase ?? bet.stage ?? "";
 }
 
+function formatRankPosition(position) {
+  return `${position}º`;
+}
+
 export function AdminRankingDashboard({ sessionUser }) {
   const [dashboard, setDashboard] = useState(null);
+  const mysteryRankingRef = useRef(null);
   const [resultForms, setResultForms] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [exportingMysteryRanking, setExportingMysteryRanking] = useState(false);
   const [busyUserId, setBusyUserId] = useState("");
   const [busyMatchId, setBusyMatchId] = useState("");
   const [deletingMatchId, setDeletingMatchId] = useState("");
@@ -247,6 +254,34 @@ export function AdminRankingDashboard({ sessionUser }) {
     }
   }
 
+  async function handleMysteryRankingExport() {
+    if (!mysteryRankingRef.current) {
+      return;
+    }
+
+    setExportingMysteryRanking(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const canvas = await html2canvas(mysteryRankingRef.current, {
+        backgroundColor: null,
+        scale: 2,
+        useCORS: true,
+      });
+      const imageUrl = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.href = imageUrl;
+      downloadLink.download = "ranking-bolao-ost.png";
+      downloadLink.click();
+      setNotice("Imagem do Ranking Misterioso gerada com sucesso.");
+    } catch {
+      setError("Nao foi possivel gerar a imagem do Ranking Misterioso.");
+    } finally {
+      setExportingMysteryRanking(false);
+    }
+  }
+
   const userFilterOptions = useMemo(
     () =>
       [...(dashboard?.users ?? [])].sort((first, second) =>
@@ -298,6 +333,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   }
 
   const paidRanking = dashboard.paid_ranking ?? dashboard.ranking.filter((entry) => entry.is_paid_pool);
+  const mysteryRanking = dashboard.ranking.slice(0, 10);
   const financialUsers = showPaidPoolOnly
     ? dashboard.users.filter((user) => user.is_paid_pool)
     : dashboard.users;
@@ -315,6 +351,16 @@ export function AdminRankingDashboard({ sessionUser }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="rounded-2xl border border-accent/40 bg-accent/15 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleMysteryRankingExport}
+              disabled={exportingMysteryRanking || mysteryRanking.length === 0}
+            >
+              {exportingMysteryRanking
+                ? "Gerando imagem..."
+                : "📸 Compartilhar Ranking Misterioso"}
+            </button>
             <span className="data-pill">Gerado em {formatDateTime(dashboard.generated_at)}</span>
             <span className="data-pill">Sessao: {sessionUser.name}</span>
           </div>
@@ -397,6 +443,54 @@ export function AdminRankingDashboard({ sessionUser }) {
           />
         </div>
       </section>
+
+      <div
+        ref={mysteryRankingRef}
+        className="pointer-events-none fixed left-[-9999px] top-0 w-[720px] overflow-hidden rounded-[32px] border border-sky-300/25 bg-slate-950 p-10 text-white shadow-2xl"
+      >
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.24),transparent_42%),linear-gradient(145deg,rgba(250,204,21,0.14),transparent_28%,rgba(14,165,233,0.10))]" />
+        <div className="relative">
+          <p className="text-center text-sm font-bold uppercase tracking-[0.32em] text-sky-200">
+            Ranking Misterioso
+          </p>
+          <h3 className="mt-4 text-center font-display text-4xl font-black tracking-wide text-white">
+            🏆 Bolão OST
+          </h3>
+          <p className="mt-3 text-center text-sm text-slate-300">
+            Top 10 atualizado em {formatDateTime(dashboard.generated_at)}
+          </p>
+
+          <div className="mt-9 space-y-3">
+            {mysteryRanking.map((entry) => (
+              <div
+                key={entry.user_id}
+                className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/[0.07] px-6 py-4"
+              >
+                <div className="flex items-center gap-5">
+                  <span className="w-16 font-display text-3xl font-black text-sky-200">
+                    {formatRankPosition(entry.rank)}
+                  </span>
+                  <span className="flex h-16 w-16 items-center justify-center rounded-full border border-sky-300/30 bg-slate-900 text-4xl">
+                    {entry.emoji || "👤"}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Pontos
+                  </p>
+                  <p className="font-display text-4xl font-black text-amber-300">
+                    {entry.total_points}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-8 text-center text-xs uppercase tracking-[0.26em] text-slate-500">
+            Nomes ocultos. Que vença o palpite.
+          </p>
+        </div>
+      </div>
 
       <section className="space-y-4">
         <div>
