@@ -22,6 +22,7 @@ export function MatchBetCard({
   formState,
   currentTime = Date.now(),
   submitting,
+  hasDraftChanges = false,
   onFieldChange,
   onSubmit,
 }) {
@@ -144,13 +145,22 @@ export function MatchBetCard({
               {WAITING_FOR_TEAMS_MESSAGE}
             </div>
           ) : (
-            <button
-              type="submit"
-              className="button-primary w-full"
-              disabled={!bettingEnabled || submitting}
-            >
-              {submitting ? "Salvando..." : bettingEnabled ? "Registrar palpite" : "Palpite encerrado"}
-            </button>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-line/70 bg-canvas/55 px-4 py-3">
+              <p className="text-sm text-muted">
+                {hasDraftChanges
+                  ? "Alteracao pendente neste jogo."
+                  : "Digite os placares para habilitar o salvamento."}
+              </p>
+              {hasDraftChanges ? (
+                <button
+                  type="submit"
+                  className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!bettingEnabled || submitting}
+                >
+                  {submitting ? "Salvando..." : "✓ Salvar"}
+                </button>
+              ) : null}
+            </div>
           )}
         </form>
       )}

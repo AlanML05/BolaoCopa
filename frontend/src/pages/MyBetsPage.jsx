@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
-import { createBet, getMyBetsOverview, updateBet } from "../services/api";
+import { createBatchBets, createBet, getMyBetsOverview, updateBet } from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
@@ -22,16 +22,6 @@ const KNOCKOUT_SUB_PHASE_OPTIONS = [
   "Final",
 ];
 
-function createDefaultForms(matches) {
-  return matches.reduce((accumulator, match) => {
-    accumulator[match.id] = {
-      homeScore: "",
-      awayScore: "",
-    };
-    return accumulator;
-  }, {});
-}
-
 function createSubmittedBetForms(bets) {
   return bets.reduce((accumulator, bet) => {
     accumulator[bet.bet_id] = {
@@ -40,6 +30,55 @@ function createSubmittedBetForms(bets) {
     };
     return accumulator;
   }, {});
+}
+
+function getOriginalBetForm(match) {
+  return {
+    homeScore:
+      match?.existing_bet?.predicted_home_score === undefined ||
+      match?.existing_bet?.predicted_home_score === null
+        ? ""
+        : String(match.existing_bet.predicted_home_score),
+    awayScore:
+      match?.existing_bet?.predicted_away_score === undefined ||
+      match?.existing_bet?.predicted_away_score === null
+        ? ""
+        : String(match.existing_bet.predicted_away_score),
+  };
+}
+
+function hasDraftChanges(match, draft) {
+  if (!match || !draft) {
+    return false;
+  }
+
+  const original = getOriginalBetForm(match);
+  return (
+    String(draft.homeScore ?? "") !== original.homeScore ||
+    String(draft.awayScore ?? "") !== original.awayScore
+  );
+}
+
+function parseDraftScores(draft) {
+  const hasBlankScore = draft?.homeScore === "" || draft?.awayScore === "";
+  const homeScore = Number(draft?.homeScore);
+  const awayScore = Number(draft?.awayScore);
+
+  if (
+    hasBlankScore ||
+    Number.isNaN(homeScore) ||
+    Number.isNaN(awayScore) ||
+    !Number.isInteger(homeScore) ||
+    !Number.isInteger(awayScore) ||
+    homeScore < 0 ||
+    awayScore < 0 ||
+    homeScore > 20 ||
+    awayScore > 20
+  ) {
+    return null;
+  }
+
+  return { homeScore, awayScore };
 }
 
 function getMatchDateKey(match) {
@@ -105,7 +144,7 @@ function getSortableKickoff(match) {
 
 export function MyBetsPage({ sessionUser }) {
   const [overview, setOverview] = useState(null);
-  const [forms, setForms] = useState({});
+  const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
   const [showOnlyPending, setShowOnlyPending] = useState(false);
@@ -114,6 +153,7 @@ export function MyBetsPage({ sessionUser }) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
+  const [savingAllDrafts, setSavingAllDrafts] = useState(false);
   const [editingBetId, setEditingBetId] = useState("");
   const [savingBetId, setSavingBetId] = useState("");
   const [error, setError] = useState("");
@@ -138,7 +178,7 @@ export function MyBetsPage({ sessionUser }) {
         }
 
         setOverview(payload);
-        setForms(createDefaultForms(payload.upcoming_matches));
+        setDraftBets({});
         setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
         if (active) {
@@ -159,6 +199,12 @@ export function MyBetsPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
+  const matchesById = useMemo(() => {
+    return upcomingMatches.reduce((accumulator, match) => {
+      accumulator[match.id] = match;
+      return accumulator;
+    }, {});
+  }, [upcomingMatches]);
   const dateOptions = useMemo(() => {
     return Array.from(new Set(upcomingMatches.map(getMatchDateKey))).sort((first, second) =>
       first.localeCompare(second, "pt-BR", { numeric: true }),
@@ -226,6 +272,9 @@ export function MyBetsPage({ sessionUser }) {
       return phaseMatches && subPhaseMatches;
     });
   }, [overview?.submitted_bets, selectedHistoryPhase, selectedHistorySubPhase]);
+  const draftCount = Object.entries(draftBets).filter(([matchId, draft]) =>
+    hasDraftChanges(matchesById[matchId], draft),
+  ).length;
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
@@ -246,23 +295,39 @@ export function MyBetsPage({ sessionUser }) {
     }
   }, [historySubPhaseOptions, selectedHistorySubPhase]);
 
-  function handleFieldChange(matchId, field, value) {
-    setForms((current) => ({
-      ...current,
-      [matchId]: {
-        ...current[matchId],
+  function getMatchFormState(match) {
+    return draftBets[match.id] ?? getOriginalBetForm(match);
+  }
+
+  function handleDraftFieldChange(matchId, field, value) {
+    const match = matchesById[matchId];
+
+    setDraftBets((current) => {
+      const nextDraft = {
+        ...getOriginalBetForm(match),
+        ...(current[matchId] ?? {}),
         [field]: value,
-      },
-    }));
+      };
+
+      if (!hasDraftChanges(match, nextDraft)) {
+        const nextDrafts = { ...current };
+        delete nextDrafts[matchId];
+        return nextDrafts;
+      }
+
+      return {
+        ...current,
+        [matchId]: nextDraft,
+      };
+    });
   }
 
   async function handleSubmit(matchId) {
-    const form = forms[matchId];
-    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
-    const homeScore = Number(form?.homeScore);
-    const awayScore = Number(form?.awayScore);
+    const match = matchesById[matchId];
+    const form = getMatchFormState(match);
+    const parsedScores = parseDraftScores(form);
 
-    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+    if (!parsedScores) {
       setNotice("Preencha os dois placares antes de salvar.");
       return;
     }
@@ -274,18 +339,68 @@ export function MyBetsPage({ sessionUser }) {
     try {
       const response = await createBet(sessionUser.accessToken, {
         match_id: matchId,
-        predicted_home_score: homeScore,
-        predicted_away_score: awayScore,
+        predicted_home_score: parsedScores.homeScore,
+        predicted_away_score: parsedScores.awayScore,
       });
       const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
-      setForms(createDefaultForms(refreshed.upcoming_matches));
       setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      setDraftBets((current) => {
+        const nextDrafts = { ...current };
+        delete nextDrafts[matchId];
+        return nextDrafts;
+      });
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setSavingMatchId("");
+    }
+  }
+
+  async function handleSubmitAllDrafts() {
+    const draftEntries = Object.entries(draftBets).filter(([matchId, draft]) =>
+      hasDraftChanges(matchesById[matchId], draft),
+    );
+
+    if (draftEntries.length === 0) {
+      return;
+    }
+
+    const invalidDraft = draftEntries.find(([, draft]) => parseDraftScores(draft) === null);
+    if (invalidDraft) {
+      setNotice("Preencha os dois placares em todos os jogos pendentes antes de salvar em lote.");
+      return;
+    }
+
+    const batchPayload = draftEntries.map(([matchId, draft]) => {
+      const parsedScores = parseDraftScores(draft);
+      return {
+        match_id: matchId,
+        home_score: parsedScores.homeScore,
+        away_score: parsedScores.awayScore,
+      };
+    });
+
+    setSavingAllDrafts(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await createBatchBets(sessionUser.accessToken, batchPayload);
+      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
+      setOverview(refreshed);
+      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      setDraftBets({});
+      setNotice(
+        response.skipped_count
+          ? `${response.message} ${response.skipped_count} jogo(s) foram ignorados por bloqueio.`
+          : response.message,
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingAllDrafts(false);
     }
   }
 
@@ -345,7 +460,6 @@ export function MyBetsPage({ sessionUser }) {
       });
       const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
-      setForms(createDefaultForms(refreshed.upcoming_matches));
       setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
       setEditingBetId("");
       setNotice(response.message);
@@ -492,10 +606,11 @@ export function MyBetsPage({ sessionUser }) {
                 <MatchBetCard
                   key={match.id}
                   match={match}
-                  formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                  formState={getMatchFormState(match)}
                   currentTime={currentTime}
-                  submitting={savingMatchId === match.id}
-                  onFieldChange={handleFieldChange}
+                  submitting={savingMatchId === match.id || savingAllDrafts}
+                  hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
+                  onFieldChange={handleDraftFieldChange}
                   onSubmit={handleSubmit}
                 />
               ))}
@@ -527,10 +642,11 @@ export function MyBetsPage({ sessionUser }) {
               <MatchBetCard
                 key={match.id}
                 match={match}
-                formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                formState={getMatchFormState(match)}
                 currentTime={currentTime}
-                submitting={savingMatchId === match.id}
-                onFieldChange={handleFieldChange}
+                submitting={savingMatchId === match.id || savingAllDrafts}
+                hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
+                onFieldChange={handleDraftFieldChange}
                 onSubmit={handleSubmit}
               />
             ))}
@@ -754,6 +870,19 @@ export function MyBetsPage({ sessionUser }) {
           ) : null}
         </div>
       </section>
+
+      {draftCount > 0 ? (
+        <button
+          type="button"
+          className="fixed bottom-6 right-6 z-50 rounded-full border border-accent/50 bg-accent px-5 py-4 text-sm font-bold text-slate-950 shadow-[0_18px_60px_rgba(56,189,248,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={handleSubmitAllDrafts}
+          disabled={savingAllDrafts}
+        >
+          {savingAllDrafts
+            ? "Salvando pendentes..."
+            : `💾 Salvar Todos Pendentes (${draftCount})`}
+        </button>
+      ) : null}
     </div>
   );
 }

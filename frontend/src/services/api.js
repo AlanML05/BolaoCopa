@@ -78,6 +78,14 @@ export function createBet(token, betPayload) {
   });
 }
 
+export function createBatchBets(token, betsPayload) {
+  return request("/api/bets/batch", {
+    method: "POST",
+    token,
+    body: betsPayload,
+  });
+}
+
 export function updateBet(token, targetBetId, betPayload) {
   return request(`/me/bets/${targetBetId}`, {
     method: "PUT",

@@ -101,6 +101,12 @@ class UpdateBetRequest(BaseModel):
     predicted_away_score: int = Field(ge=0, le=20)
 
 
+class BatchBetRequest(BaseModel):
+    match_id: str
+    home_score: int = Field(ge=0, le=20)
+    away_score: int = Field(ge=0, le=20)
+
+
 class UpdateMatchRequest(BaseModel):
     home_team: str = Field(max_length=80)
     away_team: str = Field(max_length=80)
@@ -1091,6 +1097,7 @@ def root() -> dict[str, Any]:
             "/me/bets-overview",
             "/me/bets",
             "/me/bets/{bet_id}",
+            "/api/bets/batch",
             "/standings",
             "/signup",
             "/admin/dashboard",
@@ -1334,6 +1341,72 @@ def create_bet(
     return {
         "message": "Palpite salvo com sucesso.",
         "bet": new_bet,
+    }
+
+
+@app.post("/api/bets/batch")
+def upsert_bets_batch(
+    payload: list[BatchBetRequest],
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    if current_user["role"] != "user":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuarios comuns podem apostar.")
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Envie pelo menos um palpite para salvar.",
+        )
+
+    valid_bets: list[BatchBetRequest] = []
+    skipped_bets: list[dict[str, str]] = []
+
+    for bet_payload in payload:
+        match = get_match(bet_payload.match_id)
+        betting_closed_reason = get_betting_closed_reason(match)
+        if betting_closed_reason is not None:
+            skipped_bets.append(
+                {
+                    "match_id": bet_payload.match_id,
+                    "reason": betting_closed_reason,
+                }
+            )
+            continue
+
+        valid_bets.append(bet_payload)
+
+    saved_match_ids: list[str] = []
+    created_at = now_for_database()
+
+    if valid_bets:
+        with db_cursor(commit=True) as cursor:
+            for bet_payload in valid_bets:
+                new_bet_id = next_bet_id(cursor)
+                cursor.execute(
+                    """
+                    INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        palpite_a = VALUES(palpite_a),
+                        palpite_b = VALUES(palpite_b)
+                    """,
+                    (
+                        new_bet_id,
+                        current_user["id"],
+                        bet_payload.match_id,
+                        bet_payload.home_score,
+                        bet_payload.away_score,
+                        created_at,
+                    ),
+                )
+                saved_match_ids.append(bet_payload.match_id)
+
+    return {
+        "message": f"{len(saved_match_ids)} palpite(s) salvo(s) com sucesso.",
+        "saved_count": len(saved_match_ids),
+        "saved_match_ids": saved_match_ids,
+        "skipped_count": len(skipped_bets),
+        "skipped": skipped_bets,
     }
 
 
