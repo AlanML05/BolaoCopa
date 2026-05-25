@@ -1,47 +1,50 @@
 # Bolao Copa do Mundo 2026
 
-Plataforma full-stack para gerenciamento de palpites corporativos da Copa do Mundo
-2026. O sistema oferece cadastro de participantes, painel administrativo, registro de
-palpites, calculo automatico das tabelas da fase de grupos e chaveamento dinamico do
-mata-mata.
+Plataforma full-stack para administrar um bolao da Copa do Mundo 2026 com
+cadastro de participantes, palpites, painel administrativo, tabelas da fase de
+grupos, chaveamento do mata-mata e exportacoes visuais para compartilhamento.
 
-O projeto foi desenhado para operar de forma 100% manual, sem depender de APIs externas
-de futebol para resultados, jogos ou classificacoes.
+O sistema foi desenhado para operar de forma 100% manual: jogos, confrontos e
+placares oficiais sao controlados pelo Admin, sem dependencia de APIs externas
+de futebol.
 
 ## Stack
 
 | Camada | Tecnologias |
 | --- | --- |
 | Frontend | React, Vite, TailwindCSS |
-| UI | Dark Mode Minimalist |
+| UI | Dark Mode Minimalist, layout responsivo |
+| Exportacao de imagens | html2canvas |
 | Backend | Python, FastAPI |
-| Banco de dados | MySQL |
-| Auth | JWT com senhas criptografadas |
+| Banco de dados | MySQL com PyMySQL |
+| Auth | JWT + bcrypt |
 | Deploy sugerido | Vercel + Railway |
 
-## Funcionalidades Principais
+## Funcionalidades
 
-- Painel Admin exclusivo para controle do torneio.
-- Lancamento manual de resultados reais.
-- Edicao de confrontos do mata-mata quando as selecoes forem definidas.
-- Banco populado via script com os 104 jogos da Copa do Mundo 2026.
-- Cadastro de participantes via tela de Sign Up.
-- Trava inteligente de apostas:
-  - jogos do mata-mata so liberam palpite quando os placeholders sao trocados por times reais;
-  - todos os palpites fecham 30 minutos antes do inicio de cada partida.
-- Calculo automatico das tabelas da fase de grupos.
-- Criterios de desempate da tabela:
+- Cadastro e login com JWT.
+- Emojis unicos por usuario, protegidos tambem no MySQL com `UNIQUE`.
+- Painel Admin para placares reais, usuarios, pagamentos e edicao de confrontos.
+- Banco populavel por script com os 104 jogos da Copa do Mundo 2026.
+- Palpites por data, com filtro de jogos pendentes.
+- Salvamento hibrido de palpites:
+  - salvar um jogo individualmente pelo card;
+  - salvar todos os rascunhos pendentes em lote.
+- Trava de palpites:
+  - jogos com placeholders do mata-mata ficam bloqueados;
+  - palpites fecham 30 minutos antes do inicio da partida.
+- Historico de palpites com edicao ate o limite de bloqueio.
+- Recibo de palpites em PNG para o usuario comum.
+- Ranking Geral e Ranking Bolao Pago na visao Admin.
+- Ranking Misterioso em PNG para compartilhamento, mostrando apenas posicao,
+  emoji e pontos.
+- Tabelas da fase de grupos com criterios de desempate:
   - pontos;
   - saldo de gols;
   - gols marcados;
   - confronto direto quando aplicavel.
 - Ranking dos melhores terceiros colocados.
-- Arvore visual do mata-mata com layout simetrico.
-- Bandeiras circulares das selecoes via FlagCDN.
-- Rankings separados para Admin:
-  - Ranking Geral;
-  - Ranking Bolao Pago.
-- Usuario comum ve apenas a experiencia de palpites, sem informacoes financeiras.
+- Arvore visual do mata-mata com bandeiras via FlagCDN.
 
 ## Arquitetura
 
@@ -57,10 +60,11 @@ Backend FastAPI
 MySQL
 ```
 
-Em producao, o frontend pode ser publicado na Vercel, enquanto o backend e o MySQL
-podem rodar na Railway. O backend usa CORS para liberar apenas as origens configuradas.
+Em producao, o frontend pode rodar na Vercel, enquanto backend e MySQL podem
+rodar na Railway. O backend usa CORS e variaveis de ambiente para controlar as
+origens permitidas.
 
-## Estrutura do Projeto
+## Estrutura
 
 ```text
 backend/
@@ -73,9 +77,14 @@ backend/
   matches_2026.json
   knockout_matches_2026.json
   seed_matches_2026.py
+  seed_test_data.py
+  seed_match_results.py
+  reset_match_results.py
+  setup_unique_emojis.py
   requirements.txt
 
 frontend/
+  public/
   src/
     components/
     context/
@@ -83,23 +92,16 @@ frontend/
     services/
   package.json
 
-seed.sql
 README.md
 ```
 
 ## Variaveis de Ambiente
 
-Crie os arquivos `.env` com base nos templates `.env.example`.
+Crie arquivos `.env` a partir dos templates `.env.example`.
 
 ### Backend
 
-Copie o template:
-
-```powershell
-Copy-Item backend\.env.example .env
-```
-
-Preencha as variaveis:
+Exemplo:
 
 ```env
 DB_HOST=localhost
@@ -112,15 +114,7 @@ JWT_SECRET_KEY=SUA_CHAVE_SECRETA_AQUI
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=480
 ```
 
-Em deploy, configure essas variaveis diretamente no painel da plataforma.
-
 ### Frontend
-
-Crie o arquivo local do Vite:
-
-```powershell
-Copy-Item frontend\.env.example frontend\.env
-```
 
 Exemplo:
 
@@ -148,15 +142,6 @@ Execute o schema:
 mysql -u root -p bolao_copa -e "source backend/database/schema.sql"
 ```
 
-Para limpar apostas e jogos antes de recarregar a tabela oficial:
-
-```sql
-SET FOREIGN_KEY_CHECKS = 0;
-TRUNCATE TABLE bets;
-TRUNCATE TABLE matches;
-SET FOREIGN_KEY_CHECKS = 1;
-```
-
 ### 2. Backend
 
 ```powershell
@@ -173,22 +158,30 @@ API:     http://localhost:8000
 Swagger: http://localhost:8000/docs
 ```
 
-### 3. Popular os 104 Jogos da Copa 2026
+### 3. Popular os 104 Jogos
 
-Com o ambiente virtual ativo e o `.env` configurado, rode os dois arquivos de carga:
+Com o ambiente virtual ativo e o `.env` configurado:
 
 ```powershell
 python backend\seed_matches_2026.py backend\matches_2026.json
 python backend\seed_matches_2026.py backend\knockout_matches_2026.json
 ```
 
-O primeiro comando insere os 72 jogos da fase de grupos. O segundo insere os 32 jogos
-do mata-mata, totalizando 104 partidas.
+O primeiro comando insere os 72 jogos da fase de grupos. O segundo insere os 32
+jogos do mata-mata, totalizando 104 partidas.
 
-O arquivo `seed.sql` da raiz e opcional para ambiente local/demo, pois cria usuarios e
-partidas ficticias. Nao use esse arquivo em producao.
+### 4. Configurar Emojis Unicos
 
-### 4. Frontend
+Para limpar emojis atuais e criar a restricao `UNIQUE` no banco:
+
+```powershell
+python backend\setup_unique_emojis.py
+```
+
+Esse script zera `users.emoji`, remove um indice antigo chamado `emoji` caso
+exista, ajusta a coluna para `utf8mb4_bin` e recria a restricao unica.
+
+### 5. Frontend
 
 Em outro terminal:
 
@@ -204,27 +197,39 @@ Frontend local:
 http://localhost:5173
 ```
 
+## Scripts Uteis
+
+| Script | Funcao |
+| --- | --- |
+| `backend/seed_matches_2026.py` | Insere jogos a partir dos JSONs oficiais do projeto |
+| `backend/setup_unique_emojis.py` | Recria a regra de emojis unicos no banco |
+| `backend/seed_test_data.py` | Cria usuarios de teste e palpites para carga |
+| `backend/seed_match_results.py` | Simula placares reais da fase de grupos |
+| `backend/reset_match_results.py` | Limpa placares simulados da fase de grupos |
+
 ## Fluxo de Uso
 
-1. Admin acessa o painel administrativo.
-2. Admin confere os 104 jogos carregados pelo seed.
-3. Participantes criam conta e registram palpites da fase de grupos.
-4. Durante o mata-mata, confrontos com placeholders ficam bloqueados.
-5. Quando o Admin troca o placeholder por selecoes reais, aquele jogo fica liberado
-   imediatamente para palpite.
-6. Palpites encerram automaticamente 30 minutos antes da partida.
-7. Admin lanca o placar real.
-8. O sistema recalcula rankings, tabelas e chaveamento visual.
+1. Admin carrega ou confere os 104 jogos.
+2. Participantes criam conta, escolhem emoji unico e fazem login.
+3. Usuario seleciona uma data, registra palpites e pode salvar individualmente
+   ou em lote.
+4. Jogos do mata-mata com placeholders ficam bloqueados ate o Admin definir os
+   times reais.
+5. Admin lanca placares reais a qualquer momento.
+6. Sistema recalcula rankings, tabelas e chaveamento.
+7. Admin pode exportar o Ranking Misterioso em PNG.
+8. Usuario comum pode exportar o recibo dos proprios palpites em PNG.
 
 ## Regras de Negocio
 
-- Cada usuario pode registrar um palpite por partida.
+- Cada usuario pode ter apenas um palpite por partida.
 - Palpites podem ser editados ate 30 minutos antes do inicio do jogo.
-- Jogos com nomes como `Vencedor Jogo 73`, `Perdedor Jogo 101` ou `3o Grupo A/B/C`
-  ficam bloqueados ate os times reais serem definidos.
-- O usuario comum nao ve informacoes financeiras.
-- O Admin controla participantes do Bolao Pago e pagamentos.
+- Jogos com `Grupo`, `Jogo`, `Vencedor` ou `Perdedor` no nome dos times ficam
+  bloqueados para palpite.
+- Usuario comum nao ve informacoes financeiras.
+- Admin controla quem participa do Bolao Pago e quem pagou.
 - Ranking Geral e Ranking Bolao Pago sao separados na visao administrativa.
+- Emoji de usuario e unico no banco, nao apenas na validacao do frontend.
 
 ## Deploy
 
@@ -255,16 +260,17 @@ Variavel essencial no frontend:
 VITE_API_BASE_URL=
 ```
 
-## Observacoes de Seguranca
+## Seguranca e Higiene
 
-- Nunca versionar arquivos `.env` reais.
+- Nunca versionar `.env` reais.
 - Trocar `JWT_SECRET_KEY` antes de publicar.
-- Nao usar credenciais demo em producao.
-- Rodar seeds oficiais apenas em bancos preparados para receber a carga.
+- Nao usar dados de seed em producao real.
 - Conferir `CORS_ALLOW_ORIGINS` antes do deploy publico.
+- Rodar scripts de reset/setup apenas no banco correto.
+- Revisar dados exportados antes de compartilhar imagens publicamente.
 
 ## Status
 
-Projeto finalizado como MVP funcional para Bolao da Copa do Mundo 2026, com backend,
-frontend, banco relacional, painel administrativo, fluxo de usuarios, tabelas oficiais
-e chaveamento dinamico.
+MVP funcional com backend FastAPI, frontend React, banco MySQL, fluxo de
+participantes, painel administrativo, tabelas da Copa, mata-mata visual, emojis
+unicos e exportacao de imagens para compartilhamento.
