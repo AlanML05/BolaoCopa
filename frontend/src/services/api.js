@@ -62,6 +62,10 @@ export function signupUser(credentials) {
   });
 }
 
+export function getTakenEmojis() {
+  return request("/api/users/taken-emojis");
+}
+
 export function getMyBetsOverview(token) {
   return request("/me/bets-overview", { token });
 }
@@ -71,6 +75,14 @@ export function createBet(token, betPayload) {
     method: "POST",
     token,
     body: betPayload,
+  });
+}
+
+export function createBatchBets(token, betsPayload) {
+  return request("/api/bets/batch", {
+    method: "POST",
+    token,
+    body: betsPayload,
   });
 }
 

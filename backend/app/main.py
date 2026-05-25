@@ -22,7 +22,7 @@ SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
 GROUP_LABELS = [f"Grupo {letter}" for letter in "ABCDEFGHIJKL"]
 
-USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool"
+USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool, emoji"
 MATCH_COLUMNS = (
     "id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase, "
     "estadio, placar_a, placar_b, finalizado"
@@ -87,6 +87,7 @@ class LoginRequest(BaseModel):
 class SignUpRequest(BaseModel):
     username: str = Field(max_length=80)
     password: str = Field(max_length=128)
+    emoji: str | None = Field(default=None, max_length=10)
 
 
 class CreateBetRequest(BaseModel):
@@ -98,6 +99,12 @@ class CreateBetRequest(BaseModel):
 class UpdateBetRequest(BaseModel):
     predicted_home_score: int = Field(ge=0, le=20)
     predicted_away_score: int = Field(ge=0, le=20)
+
+
+class BatchBetRequest(BaseModel):
+    match_id: str
+    home_score: int = Field(ge=0, le=20)
+    away_score: int = Field(ge=0, le=20)
 
 
 class UpdateMatchRequest(BaseModel):
@@ -145,6 +152,21 @@ def now_for_database() -> datetime:
 
 def normalize_login_value(value: str) -> str:
     return value.strip().lower()
+
+
+def normalize_emoji(value: str | None) -> str:
+    emoji = (value or "").strip()
+    if not emoji:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Escolha um emoji para concluir o cadastro.",
+        )
+    if len(emoji) > 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Escolha um emoji com no maximo 10 caracteres.",
+        )
+    return emoji
 
 
 def normalize_text_field(value: str) -> str:
@@ -233,6 +255,7 @@ def normalize_user(row: dict[str, Any]) -> dict[str, Any]:
         "department": row.get("department") or "",
         "paid": bool(row["pagou"]),
         "is_paid_pool": bool(row["is_paid_pool"]),
+        "emoji": row.get("emoji") or "",
     }
 
 
@@ -470,6 +493,7 @@ def serialize_user(user: dict[str, Any]) -> dict[str, Any]:
         "department": user["department"],
         "paid": user["paid"],
         "is_paid_pool": user["is_paid_pool"],
+        "emoji": user["emoji"],
     }
 
 
@@ -487,6 +511,7 @@ def serialize_authenticated_user(user: dict[str, Any]) -> dict[str, Any]:
         "pagou": user["paid"],
         "is_paid_pool": user["is_paid_pool"],
         "is_admin": is_admin,
+        "emoji": user["emoji"],
     }
 
 
@@ -644,6 +669,7 @@ def build_ranking(
             "department": user["department"],
             "paid": user["paid"],
             "is_paid_pool": user["is_paid_pool"],
+            "emoji": user["emoji"],
             "eligible_for_prize": user["is_paid_pool"],
             "total_points": 0,
             "exact_hits": 0,
@@ -1071,6 +1097,7 @@ def root() -> dict[str, Any]:
             "/me/bets-overview",
             "/me/bets",
             "/me/bets/{bet_id}",
+            "/api/bets/batch",
             "/standings",
             "/signup",
             "/admin/dashboard",
@@ -1099,10 +1126,26 @@ def get_standings(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, An
     return build_group_standings()
 
 
+@app.get("/api/users/taken-emojis")
+def get_taken_emojis() -> list[str]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT emoji
+            FROM users
+            WHERE emoji IS NOT NULL
+            ORDER BY emoji
+            """
+        )
+        rows = cursor.fetchall()
+    return [str(row["emoji"]).strip() for row in rows if str(row.get("emoji") or "").strip()]
+
+
 @app.post("/signup", status_code=status.HTTP_201_CREATED)
 def signup(payload: SignUpRequest) -> dict[str, Any]:
     username = normalize_login_value(payload.username)
     password = payload.password
+    emoji = normalize_emoji(payload.emoji)
 
     if len(username) < 3:
         raise HTTPException(
@@ -1135,8 +1178,11 @@ def signup(payload: SignUpRequest) -> dict[str, Any]:
         with db_cursor(commit=True) as cursor:
             cursor.execute(
                 """
-                INSERT INTO users (id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, 0, 0)
+                INSERT INTO users (
+                    id, name, username, email, password_hash,
+                    is_admin, department, pagou, is_paid_pool, emoji
+                )
+                VALUES (%s, %s, %s, %s, %s, 0, %s, 0, 0, %s)
                 """,
                 (
                     user_id,
@@ -1145,9 +1191,17 @@ def signup(payload: SignUpRequest) -> dict[str, Any]:
                     f"{user_id}@users.bolao.local",
                     password_hash,
                     "",
+                    emoji,
                 ),
             )
     except IntegrityError as error:
+        error_text = str(error).lower()
+        if "emoji" in error_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este emoji já foi escolhido no exato segundo em que você tentou. Por favor, escolha outro.",
+            ) from error
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Este usuario ja existe. Escolha outro nome de usuario.",
@@ -1287,6 +1341,72 @@ def create_bet(
     return {
         "message": "Palpite salvo com sucesso.",
         "bet": new_bet,
+    }
+
+
+@app.post("/api/bets/batch")
+def upsert_bets_batch(
+    payload: list[BatchBetRequest],
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    if current_user["role"] != "user":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuarios comuns podem apostar.")
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Envie pelo menos um palpite para salvar.",
+        )
+
+    valid_bets: list[BatchBetRequest] = []
+    skipped_bets: list[dict[str, str]] = []
+
+    for bet_payload in payload:
+        match = get_match(bet_payload.match_id)
+        betting_closed_reason = get_betting_closed_reason(match)
+        if betting_closed_reason is not None:
+            skipped_bets.append(
+                {
+                    "match_id": bet_payload.match_id,
+                    "reason": betting_closed_reason,
+                }
+            )
+            continue
+
+        valid_bets.append(bet_payload)
+
+    saved_match_ids: list[str] = []
+    created_at = now_for_database()
+
+    if valid_bets:
+        with db_cursor(commit=True) as cursor:
+            for bet_payload in valid_bets:
+                new_bet_id = next_bet_id(cursor)
+                cursor.execute(
+                    """
+                    INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        palpite_a = VALUES(palpite_a),
+                        palpite_b = VALUES(palpite_b)
+                    """,
+                    (
+                        new_bet_id,
+                        current_user["id"],
+                        bet_payload.match_id,
+                        bet_payload.home_score,
+                        bet_payload.away_score,
+                        created_at,
+                    ),
+                )
+                saved_match_ids.append(bet_payload.match_id)
+
+    return {
+        "message": f"{len(saved_match_ids)} palpite(s) salvo(s) com sucesso.",
+        "saved_count": len(saved_match_ids),
+        "saved_match_ids": saved_match_ids,
+        "skipped_count": len(skipped_bets),
+        "skipped": skipped_bets,
     }
 
 

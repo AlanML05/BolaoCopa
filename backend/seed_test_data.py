@@ -11,6 +11,68 @@ LAST_TEST_USER = 50
 PASSWORDS = ("123456", "987654")
 RANDOM_SEED = 2026
 MAX_SCORE = 4
+TEST_EMOJIS = (
+    "😀",
+    "😎",
+    "🤩",
+    "🥳",
+    "😈",
+    "🤠",
+    "🥶",
+    "🤯",
+    "🤖",
+    "👽",
+    "🐶",
+    "🐱",
+    "🦁",
+    "🐺",
+    "🐯",
+    "🐼",
+    "🐸",
+    "🦊",
+    "🐲",
+    "🦅",
+    "🦈",
+    "🐬",
+    "🐳",
+    "🐙",
+    "🐢",
+    "🦋",
+    "🦜",
+    "🦚",
+    "🦂",
+    "🚀",
+    "🛸",
+    "🚁",
+    "🚲",
+    "🛵",
+    "🚂",
+    "🚢",
+    "🚗",
+    "🚌",
+    "🚓",
+    "🚑",
+    "🚒",
+    "🚜",
+    "🎮",
+    "🎲",
+    "🎯",
+    "🎸",
+    "🎧",
+    "🎤",
+    "🎬",
+    "📚",
+    "💎",
+    "🔮",
+    "🧩",
+    "🧠",
+    "🧬",
+    "🧲",
+    "🪄",
+    "🥊",
+    "🏀",
+    "🏆",
+)
 
 
 def fetch_group_stage_matches(cursor) -> list[dict]:
@@ -30,21 +92,23 @@ def upsert_test_user(cursor, user_number: int, password: str) -> str:
     username = f"teste{user_number}"
     user_id = f"seed-user-{username}"
     password_hash = get_password_hash(password)
+    emoji = TEST_EMOJIS[(user_number - FIRST_TEST_USER) % len(TEST_EMOJIS)]
 
     cursor.execute(
         """
         INSERT INTO users (
             id, name, username, email, password_hash,
-            is_admin, department, pagou, is_paid_pool
+            is_admin, department, pagou, is_paid_pool, emoji
         )
-        VALUES (%s, %s, %s, %s, %s, 0, %s, 0, 0)
+        VALUES (%s, %s, %s, %s, %s, 0, %s, 0, 0, %s)
         ON DUPLICATE KEY UPDATE
             name = VALUES(name),
             password_hash = VALUES(password_hash),
             is_admin = 0,
             department = VALUES(department),
             pagou = 0,
-            is_paid_pool = 0
+            is_paid_pool = 0,
+            emoji = VALUES(emoji)
         """,
         (
             user_id,
@@ -53,6 +117,7 @@ def upsert_test_user(cursor, user_number: int, password: str) -> str:
             f"{username}@users.bolao.local",
             password_hash,
             "Carga de teste",
+            emoji,
         ),
     )
 

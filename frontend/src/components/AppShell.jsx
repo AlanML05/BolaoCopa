@@ -8,6 +8,7 @@ const navigation = [
 
 export function AppShell({ sessionUser, onLogout, children }) {
   const visibleNavigation = navigation.filter((item) => item.roles.includes(sessionUser?.role));
+  const userEmoji = String(sessionUser?.emoji ?? "").trim();
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -40,14 +41,23 @@ export function AppShell({ sessionUser, onLogout, children }) {
           <div className="flex flex-col gap-4 lg:min-w-[360px]">
             <div className="rounded-[28px] border border-line/80 bg-canvas/70 px-5 py-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-                    Sessao ativa
-                  </p>
-                  <p className="mt-3 text-lg font-semibold text-ink">{sessionUser?.name}</p>
-                  <p className="mt-1 text-sm text-muted">
-                    {sessionUser?.is_admin ? "Administrador" : `@${sessionUser?.username}`}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  {userEmoji ? (
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-accent/25 bg-accent/10 text-2xl shadow-[0_0_20px_rgba(125,211,252,0.12)]">
+                      {userEmoji}
+                    </span>
+                  ) : null}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+                      Sessao ativa
+                    </p>
+                    <p className="mt-3 truncate text-lg font-semibold text-ink">
+                      {sessionUser?.name}
+                    </p>
+                    <p className="mt-1 truncate text-sm text-muted">
+                      {sessionUser?.is_admin ? "Administrador" : `@${sessionUser?.username}`}
+                    </p>
+                  </div>
                 </div>
                 <button type="button" className="button-secondary" onClick={onLogout}>
                   Sair

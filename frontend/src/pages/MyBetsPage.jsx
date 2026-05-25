@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
-import { createBet, getMyBetsOverview, updateBet } from "../services/api";
+import { createBatchBets, createBet, getMyBetsOverview, updateBet } from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
@@ -22,16 +23,6 @@ const KNOCKOUT_SUB_PHASE_OPTIONS = [
   "Final",
 ];
 
-function createDefaultForms(matches) {
-  return matches.reduce((accumulator, match) => {
-    accumulator[match.id] = {
-      homeScore: "",
-      awayScore: "",
-    };
-    return accumulator;
-  }, {});
-}
-
 function createSubmittedBetForms(bets) {
   return bets.reduce((accumulator, bet) => {
     accumulator[bet.bet_id] = {
@@ -40,6 +31,55 @@ function createSubmittedBetForms(bets) {
     };
     return accumulator;
   }, {});
+}
+
+function getOriginalBetForm(match) {
+  return {
+    homeScore:
+      match?.existing_bet?.predicted_home_score === undefined ||
+      match?.existing_bet?.predicted_home_score === null
+        ? ""
+        : String(match.existing_bet.predicted_home_score),
+    awayScore:
+      match?.existing_bet?.predicted_away_score === undefined ||
+      match?.existing_bet?.predicted_away_score === null
+        ? ""
+        : String(match.existing_bet.predicted_away_score),
+  };
+}
+
+function hasDraftChanges(match, draft) {
+  if (!match || !draft) {
+    return false;
+  }
+
+  const original = getOriginalBetForm(match);
+  return (
+    String(draft.homeScore ?? "") !== original.homeScore ||
+    String(draft.awayScore ?? "") !== original.awayScore
+  );
+}
+
+function parseDraftScores(draft) {
+  const hasBlankScore = draft?.homeScore === "" || draft?.awayScore === "";
+  const homeScore = Number(draft?.homeScore);
+  const awayScore = Number(draft?.awayScore);
+
+  if (
+    hasBlankScore ||
+    Number.isNaN(homeScore) ||
+    Number.isNaN(awayScore) ||
+    !Number.isInteger(homeScore) ||
+    !Number.isInteger(awayScore) ||
+    homeScore < 0 ||
+    awayScore < 0 ||
+    homeScore > 20 ||
+    awayScore > 20
+  ) {
+    return null;
+  }
+
+  return { homeScore, awayScore };
 }
 
 function getMatchDateKey(match) {
@@ -104,8 +144,9 @@ function getSortableKickoff(match) {
 }
 
 export function MyBetsPage({ sessionUser }) {
+  const receiptRef = useRef(null);
   const [overview, setOverview] = useState(null);
-  const [forms, setForms] = useState({});
+  const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
   const [showOnlyPending, setShowOnlyPending] = useState(false);
@@ -114,8 +155,10 @@ export function MyBetsPage({ sessionUser }) {
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [savingMatchId, setSavingMatchId] = useState("");
+  const [savingAllDrafts, setSavingAllDrafts] = useState(false);
   const [editingBetId, setEditingBetId] = useState("");
   const [savingBetId, setSavingBetId] = useState("");
+  const [exportingReceipt, setExportingReceipt] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -138,7 +181,7 @@ export function MyBetsPage({ sessionUser }) {
         }
 
         setOverview(payload);
-        setForms(createDefaultForms(payload.upcoming_matches));
+        setDraftBets({});
         setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
         if (active) {
@@ -159,6 +202,12 @@ export function MyBetsPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
+  const matchesById = useMemo(() => {
+    return upcomingMatches.reduce((accumulator, match) => {
+      accumulator[match.id] = match;
+      return accumulator;
+    }, {});
+  }, [upcomingMatches]);
   const dateOptions = useMemo(() => {
     return Array.from(new Set(upcomingMatches.map(getMatchDateKey))).sort((first, second) =>
       first.localeCompare(second, "pt-BR", { numeric: true }),
@@ -226,6 +275,9 @@ export function MyBetsPage({ sessionUser }) {
       return phaseMatches && subPhaseMatches;
     });
   }, [overview?.submitted_bets, selectedHistoryPhase, selectedHistorySubPhase]);
+  const draftCount = Object.entries(draftBets).filter(([matchId, draft]) =>
+    hasDraftChanges(matchesById[matchId], draft),
+  ).length;
 
   useEffect(() => {
     if (selectedDate && !dateOptions.includes(selectedDate)) {
@@ -246,23 +298,39 @@ export function MyBetsPage({ sessionUser }) {
     }
   }, [historySubPhaseOptions, selectedHistorySubPhase]);
 
-  function handleFieldChange(matchId, field, value) {
-    setForms((current) => ({
-      ...current,
-      [matchId]: {
-        ...current[matchId],
+  function getMatchFormState(match) {
+    return draftBets[match.id] ?? getOriginalBetForm(match);
+  }
+
+  function handleDraftFieldChange(matchId, field, value) {
+    const match = matchesById[matchId];
+
+    setDraftBets((current) => {
+      const nextDraft = {
+        ...getOriginalBetForm(match),
+        ...(current[matchId] ?? {}),
         [field]: value,
-      },
-    }));
+      };
+
+      if (!hasDraftChanges(match, nextDraft)) {
+        const nextDrafts = { ...current };
+        delete nextDrafts[matchId];
+        return nextDrafts;
+      }
+
+      return {
+        ...current,
+        [matchId]: nextDraft,
+      };
+    });
   }
 
   async function handleSubmit(matchId) {
-    const form = forms[matchId];
-    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
-    const homeScore = Number(form?.homeScore);
-    const awayScore = Number(form?.awayScore);
+    const match = matchesById[matchId];
+    const form = getMatchFormState(match);
+    const parsedScores = parseDraftScores(form);
 
-    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+    if (!parsedScores) {
       setNotice("Preencha os dois placares antes de salvar.");
       return;
     }
@@ -274,18 +342,68 @@ export function MyBetsPage({ sessionUser }) {
     try {
       const response = await createBet(sessionUser.accessToken, {
         match_id: matchId,
-        predicted_home_score: homeScore,
-        predicted_away_score: awayScore,
+        predicted_home_score: parsedScores.homeScore,
+        predicted_away_score: parsedScores.awayScore,
       });
       const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
-      setForms(createDefaultForms(refreshed.upcoming_matches));
       setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      setDraftBets((current) => {
+        const nextDrafts = { ...current };
+        delete nextDrafts[matchId];
+        return nextDrafts;
+      });
       setNotice(response.message);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setSavingMatchId("");
+    }
+  }
+
+  async function handleSubmitAllDrafts() {
+    const draftEntries = Object.entries(draftBets).filter(([matchId, draft]) =>
+      hasDraftChanges(matchesById[matchId], draft),
+    );
+
+    if (draftEntries.length === 0) {
+      return;
+    }
+
+    const invalidDraft = draftEntries.find(([, draft]) => parseDraftScores(draft) === null);
+    if (invalidDraft) {
+      setNotice("Preencha os dois placares em todos os jogos pendentes antes de salvar em lote.");
+      return;
+    }
+
+    const batchPayload = draftEntries.map(([matchId, draft]) => {
+      const parsedScores = parseDraftScores(draft);
+      return {
+        match_id: matchId,
+        home_score: parsedScores.homeScore,
+        away_score: parsedScores.awayScore,
+      };
+    });
+
+    setSavingAllDrafts(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await createBatchBets(sessionUser.accessToken, batchPayload);
+      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
+      setOverview(refreshed);
+      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      setDraftBets({});
+      setNotice(
+        response.skipped_count
+          ? `${response.message} ${response.skipped_count} jogo(s) foram ignorados por bloqueio.`
+          : response.message,
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSavingAllDrafts(false);
     }
   }
 
@@ -345,7 +463,6 @@ export function MyBetsPage({ sessionUser }) {
       });
       const refreshed = await getMyBetsOverview(sessionUser.accessToken);
       setOverview(refreshed);
-      setForms(createDefaultForms(refreshed.upcoming_matches));
       setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
       setEditingBetId("");
       setNotice(response.message);
@@ -353,6 +470,34 @@ export function MyBetsPage({ sessionUser }) {
       setError(requestError.message);
     } finally {
       setSavingBetId("");
+    }
+  }
+
+  async function handleReceiptExport() {
+    if (!receiptRef.current || overview.submitted_bets.length === 0) {
+      return;
+    }
+
+    setExportingReceipt(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const canvas = await html2canvas(receiptRef.current, {
+        backgroundColor: null,
+        scale: 2,
+        useCORS: true,
+      });
+      const imageUrl = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.href = imageUrl;
+      downloadLink.download = "meus-palpites-ost.png";
+      downloadLink.click();
+      setNotice("Comprovante de palpites gerado com sucesso.");
+    } catch {
+      setError("Nao foi possivel gerar o comprovante de palpites.");
+    } finally {
+      setExportingReceipt(false);
     }
   }
 
@@ -492,10 +637,11 @@ export function MyBetsPage({ sessionUser }) {
                 <MatchBetCard
                   key={match.id}
                   match={match}
-                  formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                  formState={getMatchFormState(match)}
                   currentTime={currentTime}
-                  submitting={savingMatchId === match.id}
-                  onFieldChange={handleFieldChange}
+                  submitting={savingMatchId === match.id || savingAllDrafts}
+                  hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
+                  onFieldChange={handleDraftFieldChange}
                   onSubmit={handleSubmit}
                 />
               ))}
@@ -527,10 +673,11 @@ export function MyBetsPage({ sessionUser }) {
               <MatchBetCard
                 key={match.id}
                 match={match}
-                formState={forms[match.id] ?? { homeScore: "", awayScore: "" }}
+                formState={getMatchFormState(match)}
                 currentTime={currentTime}
-                submitting={savingMatchId === match.id}
-                onFieldChange={handleFieldChange}
+                submitting={savingMatchId === match.id || savingAllDrafts}
+                hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
+                onFieldChange={handleDraftFieldChange}
                 onSubmit={handleSubmit}
               />
             ))}
@@ -556,10 +703,20 @@ export function MyBetsPage({ sessionUser }) {
               💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
             </p>
           </div>
-          <p className="max-w-xl text-sm text-muted">
-            Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
-            estiver liberado.
-          </p>
+          <div className="flex max-w-xl flex-col gap-3">
+            <p className="text-sm text-muted">
+              Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
+              estiver liberado.
+            </p>
+            <button
+              type="button"
+              className="w-fit rounded-2xl border border-accent/40 bg-accent/15 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleReceiptExport}
+              disabled={exportingReceipt || overview.submitted_bets.length === 0}
+            >
+              {exportingReceipt ? "Gerando comprovante..." : "📸 Baixar Meu Comprovante"}
+            </button>
+          </div>
         </div>
 
         <div className="panel px-5 py-5">
@@ -754,6 +911,71 @@ export function MyBetsPage({ sessionUser }) {
           ) : null}
         </div>
       </section>
+
+      <div
+        ref={receiptRef}
+        className="pointer-events-none fixed left-[-9999px] top-0 w-[430px] overflow-hidden rounded-[30px] border border-sky-300/25 bg-slate-950 p-7 text-white shadow-2xl"
+      >
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.22),transparent_42%),linear-gradient(160deg,rgba(250,204,21,0.12),transparent_32%,rgba(14,165,233,0.12))]" />
+        <div className="relative">
+          <div className="flex flex-col items-center text-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-3xl border border-sky-300/30 bg-slate-900 text-4xl">
+              {overview.user.emoji || sessionUser.emoji || "👤"}
+            </span>
+            <h3 className="mt-4 font-display text-3xl font-black tracking-wide text-white">
+              🏆 Meus Palpites
+            </h3>
+            <p className="mt-1 text-sm font-semibold uppercase tracking-[0.2em] text-sky-200">
+              Bolão OST
+            </p>
+            <p className="mt-3 text-lg font-bold text-white">{overview.user.name}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Gerado em {formatDateTime(new Date().toISOString())}
+            </p>
+          </div>
+
+          <div className="mt-7 space-y-3">
+            {overview.submitted_bets.map((bet) => (
+              <div
+                key={bet.bet_id}
+                className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3"
+              >
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  {getTournamentPhaseLabel(bet.match)} · {getSubPhaseLabel(bet.match)}
+                </p>
+                <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
+                  <span className="truncate text-left font-semibold text-white">
+                    {bet.match.home_team}
+                  </span>
+                  <span className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-1 font-display text-lg font-black text-amber-200">
+                    {bet.predicted_home_score} x {bet.predicted_away_score}
+                  </span>
+                  <span className="truncate text-right font-semibold text-white">
+                    {bet.match.away_team}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-7 text-center text-[0.65rem] uppercase tracking-[0.22em] text-slate-500">
+            Comprovante pessoal de palpites salvos
+          </p>
+        </div>
+      </div>
+
+      {draftCount > 0 ? (
+        <button
+          type="button"
+          className="fixed bottom-6 right-6 z-50 rounded-full border border-accent/50 bg-accent px-5 py-4 text-sm font-bold text-slate-950 shadow-[0_18px_60px_rgba(56,189,248,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={handleSubmitAllDrafts}
+          disabled={savingAllDrafts}
+        >
+          {savingAllDrafts
+            ? "Salvando pendentes..."
+            : `💾 Salvar Todos Pendentes (${draftCount})`}
+        </button>
+      ) : null}
     </div>
   );
 }
