@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
@@ -143,6 +144,7 @@ function getSortableKickoff(match) {
 }
 
 export function MyBetsPage({ sessionUser }) {
+  const receiptRef = useRef(null);
   const [overview, setOverview] = useState(null);
   const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
@@ -156,6 +158,7 @@ export function MyBetsPage({ sessionUser }) {
   const [savingAllDrafts, setSavingAllDrafts] = useState(false);
   const [editingBetId, setEditingBetId] = useState("");
   const [savingBetId, setSavingBetId] = useState("");
+  const [exportingReceipt, setExportingReceipt] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -470,6 +473,34 @@ export function MyBetsPage({ sessionUser }) {
     }
   }
 
+  async function handleReceiptExport() {
+    if (!receiptRef.current || overview.submitted_bets.length === 0) {
+      return;
+    }
+
+    setExportingReceipt(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const canvas = await html2canvas(receiptRef.current, {
+        backgroundColor: null,
+        scale: 2,
+        useCORS: true,
+      });
+      const imageUrl = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.href = imageUrl;
+      downloadLink.download = "meus-palpites-ost.png";
+      downloadLink.click();
+      setNotice("Comprovante de palpites gerado com sucesso.");
+    } catch {
+      setError("Nao foi possivel gerar o comprovante de palpites.");
+    } finally {
+      setExportingReceipt(false);
+    }
+  }
+
   if (loading) {
     return (
       <section className="panel flex min-h-[320px] items-center justify-center px-6 py-8">
@@ -672,10 +703,20 @@ export function MyBetsPage({ sessionUser }) {
               💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
             </p>
           </div>
-          <p className="max-w-xl text-sm text-muted">
-            Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
-            estiver liberado.
-          </p>
+          <div className="flex max-w-xl flex-col gap-3">
+            <p className="text-sm text-muted">
+              Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
+              estiver liberado.
+            </p>
+            <button
+              type="button"
+              className="w-fit rounded-2xl border border-accent/40 bg-accent/15 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handleReceiptExport}
+              disabled={exportingReceipt || overview.submitted_bets.length === 0}
+            >
+              {exportingReceipt ? "Gerando comprovante..." : "📸 Baixar Meu Comprovante"}
+            </button>
+          </div>
         </div>
 
         <div className="panel px-5 py-5">
@@ -870,6 +911,58 @@ export function MyBetsPage({ sessionUser }) {
           ) : null}
         </div>
       </section>
+
+      <div
+        ref={receiptRef}
+        className="pointer-events-none fixed left-[-9999px] top-0 w-[430px] overflow-hidden rounded-[30px] border border-sky-300/25 bg-slate-950 p-7 text-white shadow-2xl"
+      >
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.22),transparent_42%),linear-gradient(160deg,rgba(250,204,21,0.12),transparent_32%,rgba(14,165,233,0.12))]" />
+        <div className="relative">
+          <div className="flex flex-col items-center text-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-3xl border border-sky-300/30 bg-slate-900 text-4xl">
+              {overview.user.emoji || sessionUser.emoji || "👤"}
+            </span>
+            <h3 className="mt-4 font-display text-3xl font-black tracking-wide text-white">
+              🏆 Meus Palpites
+            </h3>
+            <p className="mt-1 text-sm font-semibold uppercase tracking-[0.2em] text-sky-200">
+              Bolão OST
+            </p>
+            <p className="mt-3 text-lg font-bold text-white">{overview.user.name}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Gerado em {formatDateTime(new Date().toISOString())}
+            </p>
+          </div>
+
+          <div className="mt-7 space-y-3">
+            {overview.submitted_bets.map((bet) => (
+              <div
+                key={bet.bet_id}
+                className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3"
+              >
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  {getTournamentPhaseLabel(bet.match)} · {getSubPhaseLabel(bet.match)}
+                </p>
+                <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
+                  <span className="truncate text-left font-semibold text-white">
+                    {bet.match.home_team}
+                  </span>
+                  <span className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-1 font-display text-lg font-black text-amber-200">
+                    {bet.predicted_home_score} x {bet.predicted_away_score}
+                  </span>
+                  <span className="truncate text-right font-semibold text-white">
+                    {bet.match.away_team}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-7 text-center text-[0.65rem] uppercase tracking-[0.22em] text-slate-500">
+            Comprovante pessoal de palpites salvos
+          </p>
+        </div>
+      </div>
 
       {draftCount > 0 ? (
         <button
