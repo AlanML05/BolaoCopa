@@ -20,11 +20,16 @@ export function RankingTable({ ranking = [], emptyMessage = "Nenhum participante
                   {entry.rank}
                 </td>
                 <td className="px-4 py-4">
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-ink">{entry.name}</span>
-                    <span className="text-xs uppercase tracking-[0.18em] text-muted">
-                      {entry.department}
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-canvas/75 text-2xl shadow-[0_0_18px_rgba(125,211,252,0.08)]">
+                      {entry.emoji || "👤"}
                     </span>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="font-semibold text-ink">{entry.name}</span>
+                      <span className="text-xs uppercase tracking-[0.18em] text-muted">
+                        {entry.department}
+                      </span>
+                    </div>
                   </div>
                 </td>
                 <td className="px-4 py-4 text-lg font-semibold">{entry.total_points}</td>

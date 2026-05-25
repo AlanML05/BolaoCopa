@@ -62,6 +62,10 @@ export function signupUser(credentials) {
   });
 }
 
+export function getTakenEmojis() {
+  return request("/api/users/taken-emojis");
+}
+
 export function getMyBetsOverview(token) {
   return request("/me/bets-overview", { token });
 }
