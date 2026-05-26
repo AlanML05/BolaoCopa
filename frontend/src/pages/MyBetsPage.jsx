@@ -198,7 +198,7 @@ export function MyBetsPage({ sessionUser }) {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60000);
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 10000);
     return () => window.clearInterval(timer);
   }, []);
 

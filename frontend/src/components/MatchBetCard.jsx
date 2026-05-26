@@ -198,7 +198,7 @@ export function MatchBetCard({
                   ? "Alteracao pendente neste jogo."
                   : "Digite os placares para habilitar o salvamento."}
               </p>
-              {hasDraftChanges ? (
+              {hasDraftChanges && bettingEnabled ? (
                 <button
                   type="submit"
                   className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-60"
