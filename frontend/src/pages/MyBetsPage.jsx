@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { jsPDF } from "jspdf";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
@@ -8,6 +9,7 @@ import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
+const RECEIPT_BETS_PER_PAGE = 20;
 const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
 const HISTORY_PHASE_ALL = "Todas as Fases";
 const HISTORY_PHASE_OPTIONS = [HISTORY_PHASE_ALL, "Fase de Grupos", "Fase Mata-Mata"];
@@ -143,8 +145,34 @@ function getSortableKickoff(match) {
   return Number.isFinite(kickoffTime) ? kickoffTime : Number.MAX_SAFE_INTEGER;
 }
 
+function sanitizePdfText(value) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/[\uFE0E\uFE0F\u200D]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncatePdfText(doc, text, maxWidth) {
+  const safeText = sanitizePdfText(text);
+
+  if (doc.getTextWidth(safeText) <= maxWidth) {
+    return safeText;
+  }
+
+  let truncated = safeText;
+
+  while (truncated.length > 3 && doc.getTextWidth(`${truncated}...`) > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+
+  return `${truncated}...`;
+}
+
 export function MyBetsPage({ sessionUser }) {
-  const receiptRef = useRef(null);
+  const location = useLocation();
   const [overview, setOverview] = useState(null);
   const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
@@ -200,6 +228,20 @@ export function MyBetsPage({ sessionUser }) {
       active = false;
     };
   }, [sessionUser.accessToken]);
+
+  useEffect(() => {
+    if (loading || location.hash !== "#historico-secao") {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById("historico-secao")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, location.hash, overview]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
   const matchesById = useMemo(() => {
@@ -474,7 +516,9 @@ export function MyBetsPage({ sessionUser }) {
   }
 
   async function handleReceiptExport() {
-    if (!receiptRef.current || overview.submitted_bets.length === 0) {
+    const submittedBets = overview?.submitted_bets ?? [];
+
+    if (submittedBets.length === 0) {
       return;
     }
 
@@ -483,19 +527,113 @@ export function MyBetsPage({ sessionUser }) {
     setError("");
 
     try {
-      const canvas = await html2canvas(receiptRef.current, {
-        backgroundColor: null,
-        scale: 2,
-        useCORS: true,
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2;
+      const userName = sanitizePdfText(overview.user.name || sessionUser.name || "Participante");
+
+      function drawPageBackground() {
+        doc.setFillColor(2, 6, 23);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+        doc.setFillColor(15, 23, 42);
+        doc.roundedRect(margin, 10, contentWidth, pageHeight - 20, 4, 4, "F");
+      }
+
+      function drawHeader(pageNumber) {
+        doc.setFont("helvetica", "bold");
+
+        if (pageNumber === 1) {
+          doc.setFillColor(8, 47, 73);
+          doc.roundedRect(margin + 5, 16, contentWidth - 10, 31, 4, 4, "F");
+          doc.setTextColor(250, 204, 21);
+          doc.setFontSize(17);
+          doc.text("Meus Palpites - Bolao OST", margin + 10, 28);
+          doc.setTextColor(226, 232, 240);
+          doc.setFontSize(11);
+          doc.text(userName, margin + 10, 38);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(8);
+          doc.text("20 jogos por folha, em ordem de registro.", margin + 10, 43);
+          return 61;
+        }
+
+        doc.setTextColor(125, 211, 252);
+        doc.setFontSize(12);
+        doc.text(`Meus Palpites - Pagina ${pageNumber}`, margin + 6, 25);
+        return 39;
+      }
+
+      drawPageBackground();
+      let currentPage = 1;
+      let startY = drawHeader(currentPage);
+
+      submittedBets.forEach((bet, index) => {
+        if (index > 0 && index % RECEIPT_BETS_PER_PAGE === 0) {
+          doc.addPage();
+          currentPage += 1;
+          drawPageBackground();
+          startY = drawHeader(currentPage);
+        }
+
+        const rowIndex = index % RECEIPT_BETS_PER_PAGE;
+        const rowY = startY + rowIndex * 11.3;
+        const match = bet.match ?? {};
+        const matchLine = `${index + 1}. ${match.home_team ?? "Time da casa"} ${
+          bet.predicted_home_score
+        } x ${bet.predicted_away_score} ${match.away_team ?? "Time visitante"}`;
+        const phaseLine = `${getTournamentPhaseLabel(match)} - ${getSubPhaseLabel(match)}`;
+        const dateLine = `Data do jogo: ${formatDateTime(match.kickoff_at)}`;
+
+        doc.setFillColor(
+          rowIndex % 2 === 0 ? 30 : 15,
+          rowIndex % 2 === 0 ? 41 : 23,
+          rowIndex % 2 === 0 ? 59 : 42,
+        );
+        doc.roundedRect(margin + 5, rowY - 6, contentWidth - 10, 10.8, 2, 2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.8);
+        doc.setTextColor(248, 250, 252);
+        doc.text(
+          truncatePdfText(doc, matchLine, contentWidth - 22),
+          margin + 9,
+          rowY - 2.8,
+        );
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          truncatePdfText(doc, phaseLine, contentWidth - 22),
+          margin + 9,
+          rowY + 0.8,
+        );
+        doc.setFontSize(6.8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          truncatePdfText(doc, dateLine, contentWidth - 22),
+          margin + 9,
+          rowY + 4.2,
+        );
       });
-      const imageUrl = canvas.toDataURL("image/png");
-      const downloadLink = document.createElement("a");
-      downloadLink.href = imageUrl;
-      downloadLink.download = "meus-palpites-ost.png";
-      downloadLink.click();
-      setNotice("Comprovante de palpites gerado com sucesso.");
+
+      const totalPages = doc.getNumberOfPages();
+
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Pagina ${page} de ${totalPages}`, pageWidth / 2, pageHeight - 8, {
+          align: "center",
+        });
+      }
+
+      doc.save("meus-palpites-ost.pdf");
+      setNotice("Comprovante em PDF gerado com sucesso.");
     } catch {
-      setError("Nao foi possivel gerar o comprovante de palpites.");
+      setError("Nao foi possivel gerar o PDF de palpites.");
     } finally {
       setExportingReceipt(false);
     }
@@ -693,7 +831,10 @@ export function MyBetsPage({ sessionUser }) {
       </section>
 
       <section className="space-y-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div
+          id="historico-secao"
+          className="scroll-mt-28 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+        >
           <div>
             <p className="eyebrow">Historico</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
@@ -714,7 +855,7 @@ export function MyBetsPage({ sessionUser }) {
               onClick={handleReceiptExport}
               disabled={exportingReceipt || overview.submitted_bets.length === 0}
             >
-              {exportingReceipt ? "Gerando comprovante..." : "📸 Baixar Meu Comprovante"}
+              {exportingReceipt ? "Gerando PDF..." : "Baixar Meu Comprovante em PDF"}
             </button>
           </div>
         </div>
@@ -911,59 +1052,6 @@ export function MyBetsPage({ sessionUser }) {
           ) : null}
         </div>
       </section>
-
-      <div
-        ref={receiptRef}
-        className="pointer-events-none fixed left-[-9999px] top-0 w-[430px] overflow-hidden rounded-[30px] border border-sky-300/25 bg-slate-950 p-7 text-white shadow-2xl"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.22),transparent_42%),linear-gradient(160deg,rgba(250,204,21,0.12),transparent_32%,rgba(14,165,233,0.12))]" />
-        <div className="relative">
-          <div className="flex flex-col items-center text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-3xl border border-sky-300/30 bg-slate-900 text-4xl">
-              {overview.user.emoji || sessionUser.emoji || "👤"}
-            </span>
-            <h3 className="mt-4 font-display text-3xl font-black tracking-wide text-white">
-              🏆 Meus Palpites
-            </h3>
-            <p className="mt-1 text-sm font-semibold uppercase tracking-[0.2em] text-sky-200">
-              Bolão OST
-            </p>
-            <p className="mt-3 text-lg font-bold text-white">{overview.user.name}</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Gerado em {formatDateTime(new Date().toISOString())}
-            </p>
-          </div>
-
-          <div className="mt-7 space-y-3">
-            {overview.submitted_bets.map((bet) => (
-              <div
-                key={bet.bet_id}
-                className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3"
-              >
-                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  {getTournamentPhaseLabel(bet.match)} · {getSubPhaseLabel(bet.match)}
-                </p>
-                <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
-                  <span className="truncate text-left font-semibold text-white">
-                    {bet.match.home_team}
-                  </span>
-                  <span className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-1 font-display text-lg font-black text-amber-200">
-                    {bet.predicted_home_score} x {bet.predicted_away_score}
-                  </span>
-                  <span className="truncate text-right font-semibold text-white">
-                    {bet.match.away_team}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-7 text-center text-[0.65rem] uppercase tracking-[0.22em] text-slate-500">
-            Comprovante pessoal de palpites salvos
-          </p>
-        </div>
-      </div>
-
       {draftCount > 0 ? (
         <button
           type="button"

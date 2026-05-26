@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 const navigation = [
   { to: "/my-bets", label: "Meus Palpites", roles: ["user"] },
@@ -7,8 +7,31 @@ const navigation = [
 ];
 
 export function AppShell({ sessionUser, onLogout, children }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const visibleNavigation = navigation.filter((item) => item.roles.includes(sessionUser?.role));
   const userEmoji = String(sessionUser?.emoji ?? "").trim();
+
+  function scrollToHistorySection() {
+    document
+      .getElementById("historico-secao")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleNavigationClick(event, item) {
+    if (item.to !== "/my-bets") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (location.pathname !== "/my-bets") {
+      navigate("/my-bets#historico-secao");
+      return;
+    }
+
+    scrollToHistorySection();
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -76,6 +99,7 @@ export function AppShell({ sessionUser, onLogout, children }) {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={(event) => handleNavigationClick(event, item)}
                   className={({ isActive }) =>
                     `rounded-full px-4 py-2 text-sm font-medium transition ${
                       isActive
