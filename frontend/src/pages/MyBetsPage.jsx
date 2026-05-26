@@ -4,7 +4,13 @@ import { jsPDF } from "jspdf";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
-import { createBatchBets, createBet, getMyBetsOverview, updateBet } from "../services/api";
+import {
+  createBatchBets,
+  createBet,
+  fetchMatchStats,
+  getMyBetsOverview,
+  updateBet,
+} from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
@@ -174,6 +180,7 @@ function truncatePdfText(doc, text, maxWidth) {
 export function MyBetsPage({ sessionUser }) {
   const location = useLocation();
   const [overview, setOverview] = useState(null);
+  const [matchStats, setMatchStats] = useState({});
   const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
@@ -203,12 +210,16 @@ export function MyBetsPage({ sessionUser }) {
       setError("");
 
       try {
-        const payload = await getMyBetsOverview(sessionUser.accessToken);
+        const [payload, statsPayload] = await Promise.all([
+          getMyBetsOverview(sessionUser.accessToken),
+          fetchMatchStats(sessionUser.accessToken),
+        ]);
         if (!active) {
           return;
         }
 
         setOverview(payload);
+        setMatchStats(statsPayload ?? {});
         setDraftBets({});
         setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
@@ -344,6 +355,17 @@ export function MyBetsPage({ sessionUser }) {
     return draftBets[match.id] ?? getOriginalBetForm(match);
   }
 
+  async function refreshOverviewAndStats() {
+    const [refreshed, statsPayload] = await Promise.all([
+      getMyBetsOverview(sessionUser.accessToken),
+      fetchMatchStats(sessionUser.accessToken),
+    ]);
+    setOverview(refreshed);
+    setMatchStats(statsPayload ?? {});
+    setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+    return refreshed;
+  }
+
   function handleDraftFieldChange(matchId, field, value) {
     const match = matchesById[matchId];
 
@@ -387,9 +409,7 @@ export function MyBetsPage({ sessionUser }) {
         predicted_home_score: parsedScores.homeScore,
         predicted_away_score: parsedScores.awayScore,
       });
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setDraftBets((current) => {
         const nextDrafts = { ...current };
         delete nextDrafts[matchId];
@@ -433,9 +453,7 @@ export function MyBetsPage({ sessionUser }) {
 
     try {
       const response = await createBatchBets(sessionUser.accessToken, batchPayload);
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setDraftBets({});
       setNotice(
         response.skipped_count
@@ -503,9 +521,7 @@ export function MyBetsPage({ sessionUser }) {
         predicted_home_score: homeScore,
         predicted_away_score: awayScore,
       });
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setEditingBetId("");
       setNotice(response.message);
     } catch (requestError) {
@@ -777,6 +793,7 @@ export function MyBetsPage({ sessionUser }) {
                   match={match}
                   formState={getMatchFormState(match)}
                   currentTime={currentTime}
+                  stats={matchStats[match.id]}
                   submitting={savingMatchId === match.id || savingAllDrafts}
                   hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
                   onFieldChange={handleDraftFieldChange}
@@ -813,6 +830,7 @@ export function MyBetsPage({ sessionUser }) {
                 match={match}
                 formState={getMatchFormState(match)}
                 currentTime={currentTime}
+                stats={matchStats[match.id]}
                 submitting={savingMatchId === match.id || savingAllDrafts}
                 hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
                 onFieldChange={handleDraftFieldChange}
