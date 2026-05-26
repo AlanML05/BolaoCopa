@@ -337,6 +337,95 @@ export function AdminRankingDashboard({ sessionUser }) {
   const financialUsers = showPaidPoolOnly
     ? dashboard.users.filter((user) => user.is_paid_pool)
     : dashboard.users;
+  const financialControlSection = (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="eyebrow">Financeiro</p>
+          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+            Controle do Bolao Pago
+          </h3>
+        </div>
+        <label className="flex items-center justify-between gap-3 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+          <span>Mostrar apenas participantes</span>
+          <input
+            type="checkbox"
+            className="h-5 w-5 accent-sky-300"
+            checked={showPaidPoolOnly}
+            onChange={(event) => setShowPaidPoolOnly(event.target.checked)}
+          />
+        </label>
+      </div>
+      <div className="space-y-3">
+        {financialUsers.map((user) => (
+          <article
+            key={user.id}
+            className="panel space-y-4 px-5 py-4 transition hover:border-accent/30"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-semibold text-ink">{user.name}</p>
+                <p className="mt-1 text-sm text-muted">{user.department || user.username}</p>
+              </div>
+              <span
+                className={`data-pill ${
+                  user.is_paid_pool ? "border-accent/20 text-accent" : "text-muted"
+                }`}
+              >
+                {user.is_paid_pool ? "No Bolao Pago" : "Ranking Geral"}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+                <span>Participa do Bolao Pago?</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-sky-300"
+                  checked={Boolean(user.is_paid_pool)}
+                  disabled={busyUserId === user.id}
+                  onChange={(event) =>
+                    handleUserFinancialStatusChange(user, {
+                      is_paid_pool: event.target.checked,
+                      paid: event.target.checked ? user.paid : false,
+                    })
+                  }
+                />
+              </label>
+
+              {user.is_paid_pool ? (
+                <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
+                  <span>Pagamento Realizado?</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 accent-sky-300"
+                    checked={Boolean(user.paid)}
+                    disabled={busyUserId === user.id}
+                    onChange={(event) =>
+                      handleUserFinancialStatusChange(user, {
+                        paid: event.target.checked,
+                      })
+                    }
+                  />
+                </label>
+              ) : null}
+            </div>
+          </article>
+        ))}
+
+        {financialUsers.length === 0 ? (
+          <section className="panel px-5 py-5">
+            <p className="text-sm font-semibold text-ink">
+              Nenhum participante no filtro atual.
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              Marque usuarios como participantes do Bolao Pago para eles aparecerem aqui.
+            </p>
+          </section>
+        ) : null}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-7">
@@ -413,18 +502,22 @@ export function AdminRankingDashboard({ sessionUser }) {
         onDelete={handleMatchDelete}
       />
 
-      <section className="grid gap-5 xl:grid-cols-2">
-        <div className="space-y-4">
-          <div>
-            <p className="eyebrow">Ranking Geral</p>
-            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Camisa do Brasil
-            </h3>
-            <p className="mt-2 text-sm text-muted">
-              Todos os participantes aparecem nesta classificacao.
-            </p>
+      <section className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
+        <div className="space-y-5">
+          <div className="space-y-4">
+            <div>
+              <p className="eyebrow">Ranking Geral</p>
+              <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+                Camisa do Brasil
+              </h3>
+              <p className="mt-2 text-sm text-muted">
+                Todos os participantes aparecem nesta classificacao.
+              </p>
+            </div>
+            <RankingTable ranking={dashboard.ranking} />
           </div>
-          <RankingTable ranking={dashboard.ranking} />
+
+          {financialControlSection}
         </div>
 
         <div className="space-y-4">
@@ -524,104 +617,14 @@ export function AdminRankingDashboard({ sessionUser }) {
         </div>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.25fr_0.95fr]">
-        <div>
-          <MatchResultManager
-            matches={dashboard.matches}
-            forms={resultForms}
-            busyMatchId={busyMatchId}
-            onFieldChange={handleResultFieldChange}
-            onSave={handleMatchResultSave}
-          />
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="eyebrow">Financeiro</p>
-              <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-                Controle do Bolao Pago
-              </h3>
-            </div>
-            <label className="flex items-center justify-between gap-3 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-              <span>Mostrar apenas participantes</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 accent-sky-300"
-                checked={showPaidPoolOnly}
-                onChange={(event) => setShowPaidPoolOnly(event.target.checked)}
-              />
-            </label>
-          </div>
-          <div className="space-y-3">
-            {financialUsers.map((user) => (
-              <article
-                key={user.id}
-                className="panel space-y-4 px-5 py-4 transition hover:border-accent/30"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-ink">{user.name}</p>
-                    <p className="mt-1 text-sm text-muted">{user.department || user.username}</p>
-                  </div>
-                  <span
-                    className={`data-pill ${
-                      user.is_paid_pool ? "border-accent/20 text-accent" : "text-muted"
-                    }`}
-                  >
-                    {user.is_paid_pool ? "No Bolao Pago" : "Ranking Geral"}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-                    <span>Participa do Bolao Pago?</span>
-                    <input
-                      type="checkbox"
-                      className="h-5 w-5 accent-sky-300"
-                      checked={Boolean(user.is_paid_pool)}
-                      disabled={busyUserId === user.id}
-                      onChange={(event) =>
-                        handleUserFinancialStatusChange(user, {
-                          is_paid_pool: event.target.checked,
-                          paid: event.target.checked ? user.paid : false,
-                        })
-                      }
-                    />
-                  </label>
-
-                  {user.is_paid_pool ? (
-                    <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-                      <span>Pagamento Realizado?</span>
-                      <input
-                        type="checkbox"
-                        className="h-5 w-5 accent-sky-300"
-                        checked={Boolean(user.paid)}
-                        disabled={busyUserId === user.id}
-                        onChange={(event) =>
-                          handleUserFinancialStatusChange(user, {
-                            paid: event.target.checked,
-                          })
-                        }
-                      />
-                    </label>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-
-            {financialUsers.length === 0 ? (
-              <section className="panel px-5 py-5">
-                <p className="text-sm font-semibold text-ink">
-                  Nenhum participante no filtro atual.
-                </p>
-                <p className="mt-2 text-sm text-muted">
-                  Marque usuarios como participantes do Bolao Pago para eles aparecerem aqui.
-                </p>
-              </section>
-            ) : null}
-          </div>
-        </div>
+      <section>
+        <MatchResultManager
+          matches={dashboard.matches}
+          forms={resultForms}
+          busyMatchId={busyMatchId}
+          onFieldChange={handleResultFieldChange}
+          onSave={handleMatchResultSave}
+        />
       </section>
 
       <section className="space-y-4">
@@ -682,7 +685,7 @@ export function AdminRankingDashboard({ sessionUser }) {
             </label>
           </div>
           <div className="panel overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <table className="min-w-full divide-y divide-line/80">
                 <thead className="bg-canvas/65">
                   <tr className="text-left text-xs uppercase tracking-[0.2em] text-muted">
