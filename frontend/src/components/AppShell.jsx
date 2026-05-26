@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 const navigation = [
   { to: "/my-bets", label: "Meus Palpites", roles: ["user"] },
   { to: "/standings", label: "Tabelas dos Grupos", roles: ["user"] },
-  { to: "/admin/ranking", label: "Dashboard Ranking", roles: ["admin"] },
+  { to: "/admin/ranking", label: "Painel do Admin", roles: ["admin"] },
 ];
 
 export function AppShell({ sessionUser, onLogout, children }) {
@@ -53,11 +53,11 @@ export function AppShell({ sessionUser, onLogout, children }) {
                   Bolao Copa 2026
                 </h1>
               </div>
-              <span className="data-pill">Controle manual</span>
+              <span className="data-pill">Bolao em jogo</span>
             </div>
             <p className="subtle-copy mt-3 max-w-xl">
-              Fluxo com MySQL e JWT para validar a experiencia do participante, ranking do admin
-              e as regras matematicas do bolao com persistencia real.
+              Bem-vindo ao Bolao OST! Prepare seus palpites, desafie seus colegas e mostre que
+              voce entende de futebol.
             </p>
           </div>
 
@@ -72,7 +72,7 @@ export function AppShell({ sessionUser, onLogout, children }) {
                   ) : null}
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">
-                      Sessao ativa
+                      Voce no bolao
                     </p>
                     <p className="mt-3 truncate text-lg font-semibold text-ink">
                       {sessionUser?.name}

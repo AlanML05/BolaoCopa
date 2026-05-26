@@ -78,7 +78,7 @@ export function LoginPage() {
             <p className="eyebrow">World Cup Pool</p>
             <h1 className="headline mt-4">Login do Bolao Copa 2026</h1>
             <p className="subtle-copy mx-auto mt-4 max-w-sm">
-              Entre com seu usuario e senha para receber um token seguro de acesso.
+              Entre com seu usuario e senha para acessar seus palpites e entrar na disputa.
             </p>
           </div>
 

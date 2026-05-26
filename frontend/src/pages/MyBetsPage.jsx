@@ -695,7 +695,7 @@ export function MyBetsPage({ sessionUser }) {
         <StatCard
           label="Bloqueio"
           value={`${overview.metadata?.bet_lock_minutes ?? 30} min`}
-          caption="Palpites encerram antes do inicio de cada partida."
+          caption="Atencao as regras: voce pode alterar seus palpites a vontade, mas as edicoes fecham exatamente 30 minutos antes do apito inicial."
         />
       </section>
 
