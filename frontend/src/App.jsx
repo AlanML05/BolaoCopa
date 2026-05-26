@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
@@ -97,14 +98,49 @@ function AppRoutes() {
   );
 }
 
+function SmartFooter() {
+  const [isVisible, setIsVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  useEffect(() => {
+    function handleScroll() {
+      const currentScrollY = window.scrollY;
+
+      if (currentScrollY > lastScrollY && currentScrollY > 50) {
+        setIsVisible(false);
+      } else if (currentScrollY < lastScrollY) {
+        setIsVisible(true);
+      }
+
+      setLastScrollY(currentScrollY);
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [lastScrollY]);
+
+  return (
+    <footer
+      className={`pointer-events-none fixed bottom-0 left-0 z-50 flex w-full justify-center px-4 pb-3 transition-transform duration-300 ease-in-out ${
+        isVisible ? "translate-y-0" : "translate-y-full"
+      }`}
+    >
+      <div className="rounded-full border border-white/10 bg-slate-950/55 px-4 py-1.5 text-center text-[0.68rem] font-medium tracking-[0.08em] text-slate-300/80 shadow-lg shadow-black/30 backdrop-blur-md">
+        &copy; Direitos Autorais de Alan Martins Leandro
+      </div>
+    </footer>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <AppRoutes />
-        <footer className="pointer-events-none fixed bottom-3 left-1/2 z-50 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/55 px-4 py-1.5 text-center text-[0.68rem] font-medium tracking-[0.08em] text-slate-300/80 shadow-lg shadow-black/30 backdrop-blur-md">
-          © Direitos Autorais de Alan Martins Leandro
-        </footer>
+        <SmartFooter />
       </AuthProvider>
     </BrowserRouter>
   );

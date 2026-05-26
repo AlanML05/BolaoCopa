@@ -126,7 +126,7 @@ export function MatchManager({
       </div>
 
       <div className="panel overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="w-full overflow-x-auto">
           <table className="min-w-full divide-y divide-line/80">
             <thead className="bg-canvas/65">
               <tr className="text-left text-xs uppercase tracking-[0.2em] text-muted">
