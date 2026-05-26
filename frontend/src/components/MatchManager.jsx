@@ -127,31 +127,31 @@ export function MatchManager({
 
       <div className="panel overflow-hidden">
         <div className="w-full overflow-x-auto">
-          <table className="min-w-full divide-y divide-line/80">
+          <table className="w-full min-w-max divide-y divide-line/80 text-sm">
             <thead className="bg-canvas/65">
               <tr className="text-left text-xs uppercase tracking-[0.2em] text-muted">
-                <th className="px-4 py-4 font-medium">Jogo</th>
-                <th className="px-4 py-4 font-medium">Fase</th>
-                <th className="px-4 py-4 font-medium">Sub-fase</th>
-                <th className="px-4 py-4 font-medium">Data</th>
-                <th className="px-4 py-4 font-medium text-right">Acao</th>
+                <th className="whitespace-nowrap px-4 py-4 font-medium">Jogo</th>
+                <th className="whitespace-nowrap px-4 py-4 font-medium">Fase</th>
+                <th className="whitespace-nowrap px-4 py-4 font-medium">Sub-fase</th>
+                <th className="whitespace-nowrap px-4 py-4 font-medium">Data</th>
+                <th className="whitespace-nowrap px-4 py-4 text-right font-medium">Acao</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
               {managedMatches.length === 0 ? (
                 <tr className="bg-panel/40 text-sm">
-                  <td className="px-4 py-5 text-muted" colSpan={5}>
+                  <td className="whitespace-nowrap px-4 py-5 text-muted" colSpan={5}>
                     Nenhum jogo cadastrado.
                   </td>
                 </tr>
               ) : (
                 managedMatches.map((match) => (
                   <tr key={match.id} className="bg-panel/40 text-sm">
-                    <td className="px-4 py-4 text-ink">{match.label}</td>
-                    <td className="px-4 py-4 text-muted">{match.tournament_phase}</td>
-                    <td className="px-4 py-4 text-muted">{match.sub_phase}</td>
-                    <td className="px-4 py-4 text-muted">{formatDateTime(match.kickoff_at)}</td>
-                    <td className="px-4 py-4 text-right">
+                    <td className="whitespace-nowrap px-4 py-4 text-ink">{match.label}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-muted">{match.tournament_phase}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-muted">{match.sub_phase}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-muted">{formatDateTime(match.kickoff_at)}</td>
+                    <td className="whitespace-nowrap px-4 py-4 text-right">
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"

@@ -1098,6 +1098,7 @@ def root() -> dict[str, Any]:
             "/me/bets",
             "/me/bets/{bet_id}",
             "/api/bets/batch",
+            "/api/matches/stats",
             "/standings",
             "/signup",
             "/admin/dashboard",
@@ -1124,6 +1125,77 @@ def login(payload: LoginRequest) -> dict[str, Any]:
 @app.get("/standings")
 def get_standings(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     return build_group_standings()
+
+
+@app.get("/api/matches/stats")
+def get_match_stats(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    with db_cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT match_id,
+                   palpite_a,
+                   palpite_b,
+                   COUNT(*) AS total
+            FROM bets
+            GROUP BY match_id, palpite_a, palpite_b
+            ORDER BY match_id
+            """
+        )
+        rows = cursor.fetchall()
+
+    stats_by_match: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        match_id = str(row["match_id"])
+        home_score = int(row["palpite_a"])
+        away_score = int(row["palpite_b"])
+        total = int(row["total"])
+        score_key = f"{home_score}x{away_score}"
+        match_stats = stats_by_match.setdefault(
+            match_id,
+            {
+                "total_bets": 0,
+                "home_win_count": 0,
+                "away_win_count": 0,
+                "draw_count": 0,
+                "score_counts": {},
+            },
+        )
+
+        match_stats["total_bets"] += total
+        match_stats["score_counts"][score_key] = match_stats["score_counts"].get(score_key, 0) + total
+
+        if home_score > away_score:
+            match_stats["home_win_count"] += total
+        elif away_score > home_score:
+            match_stats["away_win_count"] += total
+        else:
+            match_stats["draw_count"] += total
+
+    response: dict[str, dict[str, Any]] = {}
+
+    for match_id, match_stats in stats_by_match.items():
+        total_bets = int(match_stats["total_bets"])
+        score_counts = match_stats["score_counts"]
+        favorite_score, favorite_score_count = sorted(
+            score_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[0]
+
+        def percentage(count: int) -> float:
+            return round((count / total_bets) * 100, 1) if total_bets else 0.0
+
+        response[match_id] = {
+            "total_bets": total_bets,
+            "home_win_percentage": percentage(match_stats["home_win_count"]),
+            "away_win_percentage": percentage(match_stats["away_win_count"]),
+            "draw_percentage": percentage(match_stats["draw_count"]),
+            "favorite_score": favorite_score,
+            "favorite_score_count": int(favorite_score_count),
+            "favorite_score_percentage": percentage(int(favorite_score_count)),
+        }
+
+    return response
 
 
 @app.get("/api/users/taken-emojis")

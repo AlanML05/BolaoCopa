@@ -318,7 +318,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   if (loading) {
     return (
       <section className="panel flex min-h-[320px] items-center justify-center px-6 py-8">
-        <p className="text-sm tracking-[0.18em] text-muted">Montando dashboard administrativo...</p>
+        <p className="text-sm tracking-[0.18em] text-muted">Preparando o painel do bolao...</p>
       </section>
     );
   }
@@ -326,7 +326,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   if (error && !dashboard) {
     return (
       <section className="panel px-6 py-8">
-        <p className="text-sm font-semibold text-danger">Nao foi possivel carregar o dashboard.</p>
+        <p className="text-sm font-semibold text-danger">Nao foi possivel carregar o painel.</p>
         <p className="mt-2 text-sm text-muted">{error}</p>
       </section>
     );
@@ -432,11 +432,11 @@ export function AdminRankingDashboard({ sessionUser }) {
       <section className="panel border-accent/10 px-6 py-7">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="eyebrow">Visao administrativa</p>
-            <h2 className="headline mt-4">Dashboard do Ranking</h2>
+            <p className="eyebrow">Painel do Admin</p>
+            <h2 className="headline mt-4">Disputa do Ranking</h2>
             <p className="subtle-copy mt-3">
-              Ranking calculado com pontuacao automatica, desempates aplicados em ordem e
-              controle manual dos participantes do Bolao Pago.
+              Acompanhe a disputa ponto a ponto! A tabela e atualizada automaticamente a cada
+              fim de jogo, mantendo o suspense do bolao vivo ate o apito final.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -451,7 +451,7 @@ export function AdminRankingDashboard({ sessionUser }) {
                 : "📸 Compartilhar Ranking Misterioso"}
             </button>
             <span className="data-pill">Gerado em {formatDateTime(dashboard.generated_at)}</span>
-            <span className="data-pill">Sessao: {sessionUser.name}</span>
+            <span className="data-pill">Usuario: {sessionUser.name}</span>
           </div>
         </div>
       </section>
@@ -466,7 +466,7 @@ export function AdminRankingDashboard({ sessionUser }) {
         <StatCard
           label="Palpites"
           value={dashboard.summary.total_bets}
-          caption="Todos os palpites registrados no banco, finalizados e futuros."
+          caption="Todos os palpites enviados pelos participantes, dos jogos encerrados aos futuros."
           tone="success"
         />
         <StatCard
@@ -630,9 +630,9 @@ export function AdminRankingDashboard({ sessionUser }) {
       <section className="space-y-4">
         <div className="space-y-4">
           <div>
-            <p className="eyebrow">Auditoria</p>
+            <p className="eyebrow">Conferencia</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Todos os palpites e pontuacao detalhada
+              Palpites dos participantes e pontuacao detalhada
             </h3>
           </div>
           <div className="panel-strong grid gap-4 px-5 py-5 md:grid-cols-3">
@@ -686,22 +686,22 @@ export function AdminRankingDashboard({ sessionUser }) {
           </div>
           <div className="panel overflow-hidden">
             <div className="w-full overflow-x-auto">
-              <table className="min-w-full divide-y divide-line/80">
+              <table className="w-full min-w-max divide-y divide-line/80 text-sm">
                 <thead className="bg-canvas/65">
                   <tr className="text-left text-xs uppercase tracking-[0.2em] text-muted">
-                    <th className="px-4 py-4 font-medium">Participante</th>
-                    <th className="px-4 py-4 font-medium">Jogo</th>
-                    <th className="px-4 py-4 font-medium">Palpite</th>
-                    <th className="px-4 py-4 font-medium">Resultado</th>
-                    <th className="px-4 py-4 font-medium">Pontos</th>
-                    <th className="px-4 py-4 font-medium">Criterio</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Participante</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Jogo</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Palpite</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Resultado</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Pontos</th>
+                    <th className="whitespace-nowrap px-4 py-4 font-medium">Criterio</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">
                   {filteredBets.map((bet) => (
                     <tr key={bet.bet_id} className="bg-panel/40 text-sm">
-                      <td className="px-4 py-4 text-ink">{bet.user_name}</td>
-                      <td className="px-4 py-4">
+                      <td className="whitespace-nowrap px-4 py-4 text-ink">{bet.user_name}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
                         <div className="flex flex-col">
                           <span className="text-ink">{bet.match_label}</span>
                           <span className="text-xs uppercase tracking-[0.18em] text-muted">
@@ -709,16 +709,16 @@ export function AdminRankingDashboard({ sessionUser }) {
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-ink">{bet.predicted_score}</td>
-                      <td className="px-4 py-4 text-muted">{bet.actual_score ?? "-- x --"}</td>
-                      <td className="px-4 py-4 font-semibold text-accent">{bet.points}</td>
-                      <td className="px-4 py-4 text-muted">{bet.reason}</td>
+                      <td className="whitespace-nowrap px-4 py-4 text-ink">{bet.predicted_score}</td>
+                      <td className="whitespace-nowrap px-4 py-4 text-muted">{bet.actual_score ?? "-- x --"}</td>
+                      <td className="whitespace-nowrap px-4 py-4 font-semibold text-accent">{bet.points}</td>
+                      <td className="whitespace-nowrap px-4 py-4 text-muted">{bet.reason}</td>
                     </tr>
                   ))}
 
                   {filteredBets.length === 0 ? (
                     <tr className="bg-panel/40 text-sm text-muted">
-                      <td className="px-4 py-5" colSpan={6}>
+                      <td className="whitespace-nowrap px-4 py-5" colSpan={6}>
                         Nenhum palpite encontrado para os filtros selecionados.
                       </td>
                     </tr>

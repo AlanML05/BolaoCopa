@@ -65,8 +65,8 @@ export function MatchResultManager({
           Inserir placar real
         </h3>
         <p className="mt-2 text-sm text-muted">
-          Ao salvar um placar, o backend atualiza o jogo no MySQL e recalcula o ranking
-          imediatamente para todos os palpites relacionados.
+          Ao salvar um placar, todos os rankings sao atualizados na hora para refletir a nova
+          rodada da disputa.
         </p>
       </div>
 

@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import html2canvas from "html2canvas";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { jsPDF } from "jspdf";
 
 import { MatchBetCard } from "../components/MatchBetCard";
 import { StatCard } from "../components/StatCard";
-import { createBatchBets, createBet, getMyBetsOverview, updateBet } from "../services/api";
+import {
+  createBatchBets,
+  createBet,
+  fetchMatchStats,
+  getMyBetsOverview,
+  updateBet,
+} from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
 
 const EMPTY_MATCHES = [];
 const LOCK_WINDOW_MS = 30 * 60 * 1000;
+const RECEIPT_BETS_PER_PAGE = 20;
 const PLACEHOLDER_TEAM_TERMS = ["grupo", "jogo", "vencedor", "perdedor"];
 const HISTORY_PHASE_ALL = "Todas as Fases";
 const HISTORY_PHASE_OPTIONS = [HISTORY_PHASE_ALL, "Fase de Grupos", "Fase Mata-Mata"];
@@ -143,9 +151,36 @@ function getSortableKickoff(match) {
   return Number.isFinite(kickoffTime) ? kickoffTime : Number.MAX_SAFE_INTEGER;
 }
 
+function sanitizePdfText(value) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/[\uFE0E\uFE0F\u200D]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncatePdfText(doc, text, maxWidth) {
+  const safeText = sanitizePdfText(text);
+
+  if (doc.getTextWidth(safeText) <= maxWidth) {
+    return safeText;
+  }
+
+  let truncated = safeText;
+
+  while (truncated.length > 3 && doc.getTextWidth(`${truncated}...`) > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+
+  return `${truncated}...`;
+}
+
 export function MyBetsPage({ sessionUser }) {
-  const receiptRef = useRef(null);
+  const location = useLocation();
   const [overview, setOverview] = useState(null);
+  const [matchStats, setMatchStats] = useState({});
   const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
@@ -175,12 +210,16 @@ export function MyBetsPage({ sessionUser }) {
       setError("");
 
       try {
-        const payload = await getMyBetsOverview(sessionUser.accessToken);
+        const [payload, statsPayload] = await Promise.all([
+          getMyBetsOverview(sessionUser.accessToken),
+          fetchMatchStats(sessionUser.accessToken),
+        ]);
         if (!active) {
           return;
         }
 
         setOverview(payload);
+        setMatchStats(statsPayload ?? {});
         setDraftBets({});
         setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
@@ -200,6 +239,20 @@ export function MyBetsPage({ sessionUser }) {
       active = false;
     };
   }, [sessionUser.accessToken]);
+
+  useEffect(() => {
+    if (loading || location.hash !== "#historico-secao") {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById("historico-secao")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, location.hash, overview]);
 
   const upcomingMatches = overview?.upcoming_matches ?? EMPTY_MATCHES;
   const matchesById = useMemo(() => {
@@ -302,6 +355,17 @@ export function MyBetsPage({ sessionUser }) {
     return draftBets[match.id] ?? getOriginalBetForm(match);
   }
 
+  async function refreshOverviewAndStats() {
+    const [refreshed, statsPayload] = await Promise.all([
+      getMyBetsOverview(sessionUser.accessToken),
+      fetchMatchStats(sessionUser.accessToken),
+    ]);
+    setOverview(refreshed);
+    setMatchStats(statsPayload ?? {});
+    setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+    return refreshed;
+  }
+
   function handleDraftFieldChange(matchId, field, value) {
     const match = matchesById[matchId];
 
@@ -345,9 +409,7 @@ export function MyBetsPage({ sessionUser }) {
         predicted_home_score: parsedScores.homeScore,
         predicted_away_score: parsedScores.awayScore,
       });
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setDraftBets((current) => {
         const nextDrafts = { ...current };
         delete nextDrafts[matchId];
@@ -391,9 +453,7 @@ export function MyBetsPage({ sessionUser }) {
 
     try {
       const response = await createBatchBets(sessionUser.accessToken, batchPayload);
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setDraftBets({});
       setNotice(
         response.skipped_count
@@ -461,9 +521,7 @@ export function MyBetsPage({ sessionUser }) {
         predicted_home_score: homeScore,
         predicted_away_score: awayScore,
       });
-      const refreshed = await getMyBetsOverview(sessionUser.accessToken);
-      setOverview(refreshed);
-      setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
+      await refreshOverviewAndStats();
       setEditingBetId("");
       setNotice(response.message);
     } catch (requestError) {
@@ -474,7 +532,9 @@ export function MyBetsPage({ sessionUser }) {
   }
 
   async function handleReceiptExport() {
-    if (!receiptRef.current || overview.submitted_bets.length === 0) {
+    const submittedBets = overview?.submitted_bets ?? [];
+
+    if (submittedBets.length === 0) {
       return;
     }
 
@@ -483,19 +543,113 @@ export function MyBetsPage({ sessionUser }) {
     setError("");
 
     try {
-      const canvas = await html2canvas(receiptRef.current, {
-        backgroundColor: null,
-        scale: 2,
-        useCORS: true,
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2;
+      const userName = sanitizePdfText(overview.user.name || sessionUser.name || "Participante");
+
+      function drawPageBackground() {
+        doc.setFillColor(2, 6, 23);
+        doc.rect(0, 0, pageWidth, pageHeight, "F");
+        doc.setFillColor(15, 23, 42);
+        doc.roundedRect(margin, 10, contentWidth, pageHeight - 20, 4, 4, "F");
+      }
+
+      function drawHeader(pageNumber) {
+        doc.setFont("helvetica", "bold");
+
+        if (pageNumber === 1) {
+          doc.setFillColor(8, 47, 73);
+          doc.roundedRect(margin + 5, 16, contentWidth - 10, 31, 4, 4, "F");
+          doc.setTextColor(250, 204, 21);
+          doc.setFontSize(17);
+          doc.text("Meus Palpites - Bolao OST", margin + 10, 28);
+          doc.setTextColor(226, 232, 240);
+          doc.setFontSize(11);
+          doc.text(userName, margin + 10, 38);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(8);
+          doc.text("20 jogos por folha, em ordem de registro.", margin + 10, 43);
+          return 61;
+        }
+
+        doc.setTextColor(125, 211, 252);
+        doc.setFontSize(12);
+        doc.text(`Meus Palpites - Pagina ${pageNumber}`, margin + 6, 25);
+        return 39;
+      }
+
+      drawPageBackground();
+      let currentPage = 1;
+      let startY = drawHeader(currentPage);
+
+      submittedBets.forEach((bet, index) => {
+        if (index > 0 && index % RECEIPT_BETS_PER_PAGE === 0) {
+          doc.addPage();
+          currentPage += 1;
+          drawPageBackground();
+          startY = drawHeader(currentPage);
+        }
+
+        const rowIndex = index % RECEIPT_BETS_PER_PAGE;
+        const rowY = startY + rowIndex * 11.3;
+        const match = bet.match ?? {};
+        const matchLine = `${index + 1}. ${match.home_team ?? "Time da casa"} ${
+          bet.predicted_home_score
+        } x ${bet.predicted_away_score} ${match.away_team ?? "Time visitante"}`;
+        const phaseLine = `${getTournamentPhaseLabel(match)} - ${getSubPhaseLabel(match)}`;
+        const dateLine = `Data do jogo: ${formatDateTime(match.kickoff_at)}`;
+
+        doc.setFillColor(
+          rowIndex % 2 === 0 ? 30 : 15,
+          rowIndex % 2 === 0 ? 41 : 23,
+          rowIndex % 2 === 0 ? 59 : 42,
+        );
+        doc.roundedRect(margin + 5, rowY - 6, contentWidth - 10, 10.8, 2, 2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.8);
+        doc.setTextColor(248, 250, 252);
+        doc.text(
+          truncatePdfText(doc, matchLine, contentWidth - 22),
+          margin + 9,
+          rowY - 2.8,
+        );
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.2);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          truncatePdfText(doc, phaseLine, contentWidth - 22),
+          margin + 9,
+          rowY + 0.8,
+        );
+        doc.setFontSize(6.8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          truncatePdfText(doc, dateLine, contentWidth - 22),
+          margin + 9,
+          rowY + 4.2,
+        );
       });
-      const imageUrl = canvas.toDataURL("image/png");
-      const downloadLink = document.createElement("a");
-      downloadLink.href = imageUrl;
-      downloadLink.download = "meus-palpites-ost.png";
-      downloadLink.click();
-      setNotice("Comprovante de palpites gerado com sucesso.");
+
+      const totalPages = doc.getNumberOfPages();
+
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Pagina ${page} de ${totalPages}`, pageWidth / 2, pageHeight - 8, {
+          align: "center",
+        });
+      }
+
+      doc.save("meus-palpites-ost.pdf");
+      setNotice("Comprovante em PDF gerado com sucesso.");
     } catch {
-      setError("Nao foi possivel gerar o comprovante de palpites.");
+      setError("Nao foi possivel gerar o PDF de palpites.");
     } finally {
       setExportingReceipt(false);
     }
@@ -525,7 +679,7 @@ export function MyBetsPage({ sessionUser }) {
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
-            <p className="subtle-copy mt-3">
+            <p className="mt-3 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Escolha o dia do jogo para consultar as partidas e registrar seus palpites.
             </p>
           </div>
@@ -557,7 +711,7 @@ export function MyBetsPage({ sessionUser }) {
         <StatCard
           label="Bloqueio"
           value={`${overview.metadata?.bet_lock_minutes ?? 30} min`}
-          caption="Palpites encerram antes do inicio de cada partida."
+          caption="Atencao as regras: voce pode alterar seus palpites a vontade, mas as edicoes fecham exatamente 30 minutos antes do apito inicial."
         />
       </section>
 
@@ -582,7 +736,7 @@ export function MyBetsPage({ sessionUser }) {
             </h3>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <p className="text-sm text-muted">
+            <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               {showOnlyPending
                 ? "Mostrando todos os jogos abertos que ainda precisam de palpite."
                 : "Os jogos aparecem depois que voce selecionar uma data."}
@@ -590,10 +744,10 @@ export function MyBetsPage({ sessionUser }) {
             <button
               type="button"
               aria-pressed={showOnlyPending}
-              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-2xl border px-4 py-2 text-sm font-bold text-black shadow-[0_0_15px_rgba(234,179,8,0.6)] transition-all duration-300 hover:scale-105 ${
                 showOnlyPending
-                  ? "border-warning/50 bg-warning/15 text-warning shadow-[0_0_24px_rgba(245,158,11,0.12)]"
-                  : "border-accent/35 bg-accent/10 text-accent hover:border-accent/70 hover:bg-accent/15"
+                  ? "border-yellow-300 bg-yellow-400"
+                  : "border-yellow-500 bg-yellow-500 hover:bg-yellow-400"
               }`}
               onClick={() => setShowOnlyPending((current) => !current)}
             >
@@ -604,7 +758,7 @@ export function MyBetsPage({ sessionUser }) {
 
         <div className="panel px-5 py-5">
           {showOnlyPending ? (
-            <div className="mb-5 rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+            <div className="mb-5 rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm font-medium text-gray-100 shadow-sm">
               Modo pendentes ativo: a data fica pausada enquanto buscamos todos os jogos
               cadastrados, abertos e sem palpite salvo.
             </div>
@@ -639,6 +793,7 @@ export function MyBetsPage({ sessionUser }) {
                   match={match}
                   formState={getMatchFormState(match)}
                   currentTime={currentTime}
+                  stats={matchStats[match.id]}
                   submitting={savingMatchId === match.id || savingAllDrafts}
                   hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
                   onFieldChange={handleDraftFieldChange}
@@ -656,14 +811,14 @@ export function MyBetsPage({ sessionUser }) {
         ) : upcomingMatches.length === 0 ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Quando partidas forem cadastradas, elas aparecerao aqui.
             </p>
           </section>
         ) : !selectedDate ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Selecione uma data.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Use o filtro acima para carregar todos os jogos daquele dia.
             </p>
           </section>
@@ -675,6 +830,7 @@ export function MyBetsPage({ sessionUser }) {
                 match={match}
                 formState={getMatchFormState(match)}
                 currentTime={currentTime}
+                stats={matchStats[match.id]}
                 submitting={savingMatchId === match.id || savingAllDrafts}
                 hasDraftChanges={hasDraftChanges(match, draftBets[match.id])}
                 onFieldChange={handleDraftFieldChange}
@@ -685,7 +841,7 @@ export function MyBetsPage({ sessionUser }) {
         ) : (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Escolha outra data para consultar os jogos disponiveis.
             </p>
           </section>
@@ -693,28 +849,31 @@ export function MyBetsPage({ sessionUser }) {
       </section>
 
       <section className="space-y-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div
+          id="historico-secao"
+          className="scroll-mt-28 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+        >
           <div>
             <p className="eyebrow">Historico</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
               Palpites ja registrados
             </h3>
-            <p className="mt-3 w-fit rounded-2xl border border-accent/15 bg-accent/5 px-3 py-2 text-sm text-slate-300">
+            <p className="mt-3 w-fit rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
             </p>
           </div>
           <div className="flex max-w-xl flex-col gap-3">
-            <p className="text-sm text-muted">
+            <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
               estiver liberado.
             </p>
             <button
               type="button"
-              className="w-fit rounded-2xl border border-accent/40 bg-accent/15 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-fit rounded-md border-2 border-yellow-500 bg-transparent px-4 py-2 text-sm font-bold text-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.4)] transition-colors hover:bg-yellow-500 hover:text-black disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500 disabled:shadow-none disabled:hover:bg-transparent"
               onClick={handleReceiptExport}
               disabled={exportingReceipt || overview.submitted_bets.length === 0}
             >
-              {exportingReceipt ? "Gerando comprovante..." : "📸 Baixar Meu Comprovante"}
+              {exportingReceipt ? "Gerando PDF..." : "Baixar Meu Comprovante em PDF"}
             </button>
           </div>
         </div>
@@ -772,11 +931,13 @@ export function MyBetsPage({ sessionUser }) {
               <article key={bet.bet_id} className="panel px-5 py-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="eyebrow">{bet.match.stage}</p>
+                    <p className="inline-flex rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-100 shadow-sm">
+                      {bet.match.stage}
+                    </p>
                     <h4 className="mt-2 font-display text-xl font-semibold text-ink">
                       {bet.match.label}
                     </h4>
-                    <p className="mt-2 text-sm text-muted">
+                    <p className="mt-2 inline-flex rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                       {formatDateTime(bet.match.kickoff_at)} - {bet.match.stadium}
                     </p>
                   </div>
@@ -871,7 +1032,7 @@ export function MyBetsPage({ sessionUser }) {
                     </div>
 
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-muted">
+                      <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                         Registrado em {formatDateTime(bet.created_at)}.
                       </p>
                       {editable ? (
@@ -897,77 +1058,24 @@ export function MyBetsPage({ sessionUser }) {
           {overview.submitted_bets.length === 0 ? (
             <section className="panel px-6 py-8">
               <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                 Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
               </p>
             </section>
           ) : filteredSubmittedBets.length === 0 ? (
             <section className="panel px-6 py-8">
               <p className="text-sm font-semibold text-ink">Nenhum palpite neste filtro.</p>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                 Ajuste a fase ou sub-fase para localizar outros palpites registrados.
               </p>
             </section>
           ) : null}
         </div>
       </section>
-
-      <div
-        ref={receiptRef}
-        className="pointer-events-none fixed left-[-9999px] top-0 w-[430px] overflow-hidden rounded-[30px] border border-sky-300/25 bg-slate-950 p-7 text-white shadow-2xl"
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.22),transparent_42%),linear-gradient(160deg,rgba(250,204,21,0.12),transparent_32%,rgba(14,165,233,0.12))]" />
-        <div className="relative">
-          <div className="flex flex-col items-center text-center">
-            <span className="flex h-16 w-16 items-center justify-center rounded-3xl border border-sky-300/30 bg-slate-900 text-4xl">
-              {overview.user.emoji || sessionUser.emoji || "👤"}
-            </span>
-            <h3 className="mt-4 font-display text-3xl font-black tracking-wide text-white">
-              🏆 Meus Palpites
-            </h3>
-            <p className="mt-1 text-sm font-semibold uppercase tracking-[0.2em] text-sky-200">
-              Bolão OST
-            </p>
-            <p className="mt-3 text-lg font-bold text-white">{overview.user.name}</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Gerado em {formatDateTime(new Date().toISOString())}
-            </p>
-          </div>
-
-          <div className="mt-7 space-y-3">
-            {overview.submitted_bets.map((bet) => (
-              <div
-                key={bet.bet_id}
-                className="rounded-2xl border border-white/10 bg-white/[0.07] px-4 py-3"
-              >
-                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  {getTournamentPhaseLabel(bet.match)} · {getSubPhaseLabel(bet.match)}
-                </p>
-                <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
-                  <span className="truncate text-left font-semibold text-white">
-                    {bet.match.home_team}
-                  </span>
-                  <span className="rounded-xl border border-amber-300/25 bg-amber-300/10 px-3 py-1 font-display text-lg font-black text-amber-200">
-                    {bet.predicted_home_score} x {bet.predicted_away_score}
-                  </span>
-                  <span className="truncate text-right font-semibold text-white">
-                    {bet.match.away_team}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-7 text-center text-[0.65rem] uppercase tracking-[0.22em] text-slate-500">
-            Comprovante pessoal de palpites salvos
-          </p>
-        </div>
-      </div>
-
       {draftCount > 0 ? (
         <button
           type="button"
-          className="fixed bottom-6 right-6 z-50 rounded-full border border-accent/50 bg-accent px-5 py-4 text-sm font-bold text-slate-950 shadow-[0_18px_60px_rgba(56,189,248,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
+          className="fixed bottom-6 right-6 z-50 animate-pulse rounded-full border border-yellow-300/70 bg-yellow-500 px-5 py-4 text-sm font-bold text-black shadow-[0_0_15px_rgba(234,179,8,0.6)] transition-all duration-300 hover:scale-105 hover:bg-yellow-400 disabled:cursor-not-allowed disabled:animate-none disabled:opacity-60"
           onClick={handleSubmitAllDrafts}
           disabled={savingAllDrafts}
         >

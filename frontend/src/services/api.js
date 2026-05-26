@@ -98,6 +98,10 @@ export function getStandings(token) {
   return request("/standings", { token });
 }
 
+export function fetchMatchStats(token) {
+  return request("/api/matches/stats", { token });
+}
+
 export function getAdminDashboard(token) {
   return request("/admin/dashboard", { token });
 }

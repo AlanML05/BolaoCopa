@@ -17,9 +17,44 @@ function getSubPhaseLabel(match) {
   return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
 }
 
+function formatPercentage(value) {
+  const numberValue = Number(value) || 0;
+  return Number.isInteger(numberValue) ? String(numberValue) : numberValue.toFixed(1);
+}
+
+function getCrowdStatsMessage(stats, match) {
+  if (!stats || !stats.total_bets) {
+    return "";
+  }
+
+  const outcomes = [
+    {
+      type: "home",
+      percentage: Number(stats.home_win_percentage) || 0,
+      text: `${formatPercentage(stats.home_win_percentage)}% da galera aposta na vitoria de ${match.home_team}`,
+    },
+    {
+      type: "away",
+      percentage: Number(stats.away_win_percentage) || 0,
+      text: `${formatPercentage(stats.away_win_percentage)}% da galera aposta na vitoria de ${match.away_team}`,
+    },
+    {
+      type: "draw",
+      percentage: Number(stats.draw_percentage) || 0,
+      text: `${formatPercentage(stats.draw_percentage)}% da galera aposta no empate`,
+    },
+  ].sort((first, second) => second.percentage - first.percentage);
+
+  const leadingOutcome = outcomes[0];
+  const favoriteScore = stats.favorite_score ? ` Placar favorito: ${stats.favorite_score}.` : "";
+
+  return `Tendencia da galera: ${leadingOutcome.text}.${favoriteScore}`;
+}
+
 export function MatchBetCard({
   match,
   formState,
+  stats,
   currentTime = Date.now(),
   submitting,
   hasDraftChanges = false,
@@ -36,6 +71,7 @@ export function MatchBetCard({
   const waitingForDefinedTeams = hasPlaceholderTeam(match);
   const tournamentPhaseLabel = getTournamentPhaseLabel(match);
   const subPhaseLabel = getSubPhaseLabel(match);
+  const crowdStatsMessage = getCrowdStatsMessage(stats, match);
   const bettingEnabled =
     isScheduled && hasValidKickoff && !closedByClientClock && !waitingForDefinedTeams;
   const closedReason =
@@ -91,6 +127,11 @@ export function MatchBetCard({
             Registrado em {formatDateTime(match.existing_bet.created_at)}. Edicoes ficam no
             Historico enquanto a janela estiver aberta.
           </p>
+          {crowdStatsMessage ? (
+            <p className="mt-3 rounded-xl border border-gray-700/70 bg-gray-800/70 px-3 py-2 text-center text-xs text-gray-300">
+              {crowdStatsMessage}
+            </p>
+          ) : null}
         </div>
       ) : (
         <form
@@ -139,6 +180,12 @@ export function MatchBetCard({
               />
             </div>
           </div>
+
+          {crowdStatsMessage ? (
+            <p className="rounded-xl border border-gray-700/70 bg-gray-800/70 px-3 py-2 text-center text-xs text-gray-300">
+              {crowdStatsMessage}
+            </p>
+          ) : null}
 
           {waitingForDefinedTeams ? (
             <div className="rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-center text-sm font-semibold text-warning">

@@ -92,9 +92,8 @@ export function GroupStandingsPage({ sessionUser }) {
             <p className="eyebrow">Copa do Mundo 2026</p>
             <h2 className="headline mt-4">Tabelas dos Grupos</h2>
             <p className="subtle-copy mt-3">
-              Classificacao da fase de grupos com vitoria valendo 3 pontos, empate 1 ponto e
-              desempate por pontos, saldo de gols, gols marcados e confronto direto quando
-              apenas duas selecoes continuam empatadas.
+              Acompanhe a disputa ponto a ponto! Vitorias, empates e gols fazem cada grupo mudar
+              de cara ate a ultima rodada.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:items-end">
@@ -218,8 +217,8 @@ export function GroupStandingsPage({ sessionUser }) {
                 Ranking dos Terceiros Colocados
               </h3>
               <p className="mt-2 text-sm text-muted">
-                Os oito melhores terceiros avancam. A ordenacao usa pontos, saldo de gols e gols
-                marcados.
+                Os oito melhores terceiros continuam sonhando com a taca. Cada ponto e cada gol
+                podem mudar essa corrida.
               </p>
             </div>
 
