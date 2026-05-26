@@ -663,7 +663,7 @@ export function MyBetsPage({ sessionUser }) {
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
-            <p className="subtle-copy mt-3">
+            <p className="mt-3 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Escolha o dia do jogo para consultar as partidas e registrar seus palpites.
             </p>
           </div>
@@ -720,7 +720,7 @@ export function MyBetsPage({ sessionUser }) {
             </h3>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <p className="text-sm text-muted">
+            <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               {showOnlyPending
                 ? "Mostrando todos os jogos abertos que ainda precisam de palpite."
                 : "Os jogos aparecem depois que voce selecionar uma data."}
@@ -728,10 +728,10 @@ export function MyBetsPage({ sessionUser }) {
             <button
               type="button"
               aria-pressed={showOnlyPending}
-              className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-2xl border px-4 py-2 text-sm font-bold text-black shadow-[0_0_15px_rgba(234,179,8,0.6)] transition-all duration-300 hover:scale-105 ${
                 showOnlyPending
-                  ? "border-warning/50 bg-warning/15 text-warning shadow-[0_0_24px_rgba(245,158,11,0.12)]"
-                  : "border-accent/35 bg-accent/10 text-accent hover:border-accent/70 hover:bg-accent/15"
+                  ? "border-yellow-300 bg-yellow-400"
+                  : "border-yellow-500 bg-yellow-500 hover:bg-yellow-400"
               }`}
               onClick={() => setShowOnlyPending((current) => !current)}
             >
@@ -742,7 +742,7 @@ export function MyBetsPage({ sessionUser }) {
 
         <div className="panel px-5 py-5">
           {showOnlyPending ? (
-            <div className="mb-5 rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+            <div className="mb-5 rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm font-medium text-gray-100 shadow-sm">
               Modo pendentes ativo: a data fica pausada enquanto buscamos todos os jogos
               cadastrados, abertos e sem palpite salvo.
             </div>
@@ -794,14 +794,14 @@ export function MyBetsPage({ sessionUser }) {
         ) : upcomingMatches.length === 0 ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Quando partidas forem cadastradas, elas aparecerao aqui.
             </p>
           </section>
         ) : !selectedDate ? (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Selecione uma data.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Use o filtro acima para carregar todos os jogos daquele dia.
             </p>
           </section>
@@ -823,7 +823,7 @@ export function MyBetsPage({ sessionUser }) {
         ) : (
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Escolha outra data para consultar os jogos disponiveis.
             </p>
           </section>
@@ -840,18 +840,18 @@ export function MyBetsPage({ sessionUser }) {
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
               Palpites ja registrados
             </h3>
-            <p className="mt-3 w-fit rounded-2xl border border-accent/15 bg-accent/5 px-3 py-2 text-sm text-slate-300">
+            <p className="mt-3 w-fit rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
             </p>
           </div>
           <div className="flex max-w-xl flex-col gap-3">
-            <p className="text-sm text-muted">
+            <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               Filtre seus palpites salvos para encontrar rapidamente um jogo e editar enquanto ainda
               estiver liberado.
             </p>
             <button
               type="button"
-              className="w-fit rounded-2xl border border-accent/40 bg-accent/15 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-fit rounded-md border-2 border-yellow-500 bg-transparent px-4 py-2 text-sm font-bold text-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.4)] transition-colors hover:bg-yellow-500 hover:text-black disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500 disabled:shadow-none disabled:hover:bg-transparent"
               onClick={handleReceiptExport}
               disabled={exportingReceipt || overview.submitted_bets.length === 0}
             >
@@ -913,11 +913,13 @@ export function MyBetsPage({ sessionUser }) {
               <article key={bet.bet_id} className="panel px-5 py-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="eyebrow">{bet.match.stage}</p>
+                    <p className="inline-flex rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-gray-100 shadow-sm">
+                      {bet.match.stage}
+                    </p>
                     <h4 className="mt-2 font-display text-xl font-semibold text-ink">
                       {bet.match.label}
                     </h4>
-                    <p className="mt-2 text-sm text-muted">
+                    <p className="mt-2 inline-flex rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                       {formatDateTime(bet.match.kickoff_at)} - {bet.match.stadium}
                     </p>
                   </div>
@@ -1012,7 +1014,7 @@ export function MyBetsPage({ sessionUser }) {
                     </div>
 
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm text-muted">
+                      <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                         Registrado em {formatDateTime(bet.created_at)}.
                       </p>
                       {editable ? (
@@ -1038,14 +1040,14 @@ export function MyBetsPage({ sessionUser }) {
           {overview.submitted_bets.length === 0 ? (
             <section className="panel px-6 py-8">
               <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                 Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
               </p>
             </section>
           ) : filteredSubmittedBets.length === 0 ? (
             <section className="panel px-6 py-8">
               <p className="text-sm font-semibold text-ink">Nenhum palpite neste filtro.</p>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
                 Ajuste a fase ou sub-fase para localizar outros palpites registrados.
               </p>
             </section>
@@ -1055,7 +1057,7 @@ export function MyBetsPage({ sessionUser }) {
       {draftCount > 0 ? (
         <button
           type="button"
-          className="fixed bottom-6 right-6 z-50 rounded-full border border-accent/50 bg-accent px-5 py-4 text-sm font-bold text-slate-950 shadow-[0_18px_60px_rgba(56,189,248,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-60"
+          className="fixed bottom-6 right-6 z-50 animate-pulse rounded-full border border-yellow-300/70 bg-yellow-500 px-5 py-4 text-sm font-bold text-black shadow-[0_0_15px_rgba(234,179,8,0.6)] transition-all duration-300 hover:scale-105 hover:bg-yellow-400 disabled:cursor-not-allowed disabled:animate-none disabled:opacity-60"
           onClick={handleSubmitAllDrafts}
           disabled={savingAllDrafts}
         >
