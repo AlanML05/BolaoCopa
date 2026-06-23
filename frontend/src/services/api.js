@@ -70,6 +70,10 @@ export function getMyBetsOverview(token) {
   return request("/me/bets-overview", { token });
 }
 
+export function getMyPerformance(token) {
+  return request("/me/performance", { token });
+}
+
 export function createBet(token, betPayload) {
   return request("/me/bets", {
     method: "POST",
@@ -116,6 +120,13 @@ export function updateMatch(token, targetMatchId, matchPayload) {
 
 export function deleteMatch(token, targetMatchId) {
   return request(`/admin/matches/${targetMatchId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function deleteUserByEmail(token, email) {
+  return request(`/admin/users/by-email/${encodeURIComponent(email)}`, {
     method: "DELETE",
     token,
   });
