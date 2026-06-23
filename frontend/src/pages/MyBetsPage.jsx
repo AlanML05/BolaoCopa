@@ -178,25 +178,21 @@ function truncatePdfText(doc, text, maxWidth) {
   return `${truncated}...`;
 }
 
-function formatRankLabel(rank) {
-  return rank ? `${rank}º` : "--";
-}
-
 function formatPositionMovement(delta) {
   if (delta === null || delta === undefined) {
     return "Primeiro registro";
   }
 
   if (delta > 0) {
-    return `Subiu ${delta} posicao${delta === 1 ? "" : "es"}`;
+    return delta === 1 ? "Subiu 1 posição" : `Subiu ${delta} posições`;
   }
 
   if (delta < 0) {
     const positions = Math.abs(delta);
-    return `Caiu ${positions} posicao${positions === 1 ? "" : "es"}`;
+    return positions === 1 ? "Caiu 1 posição" : `Caiu ${positions} posições`;
   }
 
-  return "Manteve a posicao";
+  return "Manteve a posição";
 }
 
 function getMovementTone(delta) {
@@ -211,13 +207,13 @@ function getMovementTone(delta) {
   return "text-muted";
 }
 
-function PositionTrendChart({ history, totalParticipants }) {
+function MovementTrendChart({ history }) {
   const chartHistory = history ?? [];
 
   if (chartHistory.length === 0) {
     return (
       <div className="rounded-3xl border border-line/70 bg-canvas/70 px-5 py-6 text-sm text-muted">
-        O grafico aparece assim que houver jogos finalizados e pontuados.
+        O movimento aparece assim que houver jogos finalizados e pontuados.
       </div>
     );
   }
@@ -226,18 +222,24 @@ function PositionTrendChart({ history, totalParticipants }) {
   const height = 210;
   const paddingX = 34;
   const paddingY = 26;
-  const rankDomainMax = Math.max(
-    totalParticipants || 1,
-    ...chartHistory.map((item) => Number(item.rank) || 1),
-    1,
-  );
+  let cumulativeMovement = 0;
+  const movementHistory = chartHistory.map((item) => {
+    cumulativeMovement += Number(item.position_delta) || 0;
+    return {
+      ...item,
+      cumulativeMovement,
+    };
+  });
+  const movementValues = movementHistory.map((item) => item.cumulativeMovement);
+  const minMovement = Math.min(...movementValues, 0);
+  const maxMovement = Math.max(...movementValues, 0);
   const usableWidth = width - paddingX * 2;
   const usableHeight = height - paddingY * 2;
-  const divisor = Math.max(chartHistory.length - 1, 1);
-  const rankDivisor = Math.max(rankDomainMax - 1, 1);
-  const points = chartHistory.map((item, index) => {
+  const divisor = Math.max(movementHistory.length - 1, 1);
+  const movementDivisor = Math.max(maxMovement - minMovement, 1);
+  const points = movementHistory.map((item, index) => {
     const x = paddingX + (index / divisor) * usableWidth;
-    const y = paddingY + ((Number(item.rank) - 1) / rankDivisor) * usableHeight;
+    const y = paddingY + ((maxMovement - item.cumulativeMovement) / movementDivisor) * usableHeight;
     return {
       ...item,
       x,
@@ -255,7 +257,7 @@ function PositionTrendChart({ history, totalParticipants }) {
         className="h-auto w-full"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Grafico de evolucao da sua posicao no ranking"
+        aria-label="Gráfico de movimento no ranking sem revelar a posição exata"
       >
         <defs>
           <linearGradient id="positionTrendGradient" x1="0%" x2="100%" y1="0%" y2="0%">
@@ -288,10 +290,10 @@ function PositionTrendChart({ history, totalParticipants }) {
           strokeDasharray="5 7"
         />
         <text x={paddingX} y={paddingY - 8} fill="#94a3b8" fontSize="12">
-          1º
+          Subiu
         </text>
         <text x={paddingX} y={height - paddingY + 18} fill="#64748b" fontSize="12">
-          {formatRankLabel(rankDomainMax)}
+          Caiu
         </text>
 
         {points.length > 1 ? (
@@ -317,7 +319,7 @@ function PositionTrendChart({ history, totalParticipants }) {
               strokeWidth="3"
             />
             <title>
-              {`${point.match_label}: ${formatRankLabel(point.rank)} lugar, ${point.total_points} pontos`}
+              {`${point.match_label}: ${formatPositionMovement(point.position_delta)}, ${point.total_points} pontos`}
             </title>
           </g>
         ))}
@@ -343,7 +345,7 @@ function PerformanceOverview({ performance }) {
         <div className="relative">
           <p className="eyebrow text-yellow-300/90">Performance</p>
           <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
-            Sua pontuacao acumulada
+            Sua pontuação acumulada
           </h3>
           <div className="mt-6 flex flex-wrap items-end gap-4">
             <span className="font-display text-7xl font-black leading-none text-yellow-300 drop-shadow-[0_0_18px_rgba(250,204,21,0.28)]">
@@ -356,13 +358,9 @@ function PerformanceOverview({ performance }) {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted">Posicao</p>
-              <p className="mt-2 text-xl font-semibold text-ink">
-                {formatRankLabel(performance.rank)}
-                <span className="text-sm font-normal text-muted">
-                  {" "}
-                  / {performance.total_participants}
-                </span>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Movimento</p>
+              <p className={`mt-2 text-base font-semibold ${movementTone}`}>
+                {movementLabel}
               </p>
             </div>
             <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
@@ -370,13 +368,13 @@ function PerformanceOverview({ performance }) {
               <p className="mt-2 text-xl font-semibold text-ink">{performance.exact_hits}</p>
             </div>
             <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-muted">Tendencias</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Tendências</p>
               <p className="mt-2 text-xl font-semibold text-ink">{performance.tendency_hits}</p>
             </div>
           </div>
 
-          <p className={`mt-5 text-sm font-semibold ${movementTone}`}>
-            {movementLabel}
+          <p className="mt-5 text-sm text-muted">
+            A posição exata fica em segredo; aqui aparece apenas se você subiu, caiu ou manteve.
           </p>
         </div>
       </article>
@@ -384,9 +382,9 @@ function PerformanceOverview({ performance }) {
       <article className="panel-strong px-6 py-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="eyebrow">Evolucao</p>
+            <p className="eyebrow">Evolução</p>
             <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
-              Historico de posicoes
+              Movimento no ranking
             </h3>
           </div>
           <span className="data-pill">
@@ -394,13 +392,10 @@ function PerformanceOverview({ performance }) {
           </span>
         </div>
         <p className="mt-3 text-sm text-muted">
-          A linha mostra somente a sua posicao no ranking geral apos cada jogo finalizado.
+          A linha mostra apenas a direção do seu movimento, sem revelar a posição na tabela.
         </p>
         <div className="mt-5">
-          <PositionTrendChart
-            history={history}
-            totalParticipants={performance.total_participants}
-          />
+          <MovementTrendChart history={history} />
         </div>
       </article>
     </section>
@@ -910,7 +905,7 @@ export function MyBetsPage({ sessionUser }) {
   return (
     <div className="space-y-7">
       <section className="panel border-accent/10 px-6 py-7">
-        <p className="eyebrow">Area do participante</p>
+        <p className="eyebrow">Área do participante</p>
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <h2 className="headline">Meus Palpites</h2>
@@ -919,7 +914,7 @@ export function MyBetsPage({ sessionUser }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <span className="data-pill">Usuario: {overview.user.name}</span>
+            <span className="data-pill">Usuário: {overview.user.name}</span>
           </div>
         </div>
       </section>
@@ -936,11 +931,11 @@ export function MyBetsPage({ sessionUser }) {
         <StatCard
           label="Palpites cadastrados"
           value={overview.summary.registered_upcoming_bets}
-          caption="Jogos futuros que ja possuem um palpite seu."
+          caption="Jogos futuros que já possuem um palpite seu."
           tone="success"
         />
         <StatCard
-          label="Ainda disponiveis"
+          label="Ainda disponíveis"
           value={overview.summary.open_matches_without_bet}
           caption="Partidas futuras que seguem liberadas para sua primeira aposta."
           tone="warning"
@@ -948,7 +943,7 @@ export function MyBetsPage({ sessionUser }) {
         <StatCard
           label="Bloqueio"
           value={`${overview.metadata?.bet_lock_minutes ?? 30} min`}
-          caption="Atencao as regras: voce pode alterar seus palpites a vontade, mas as edicoes fecham exatamente 30 minutos antes do apito inicial."
+          caption="Atenção às regras: você pode alterar seus palpites à vontade, mas as edições fecham exatamente 30 minutos antes do apito inicial."
         />
       </section>
 
@@ -976,7 +971,7 @@ export function MyBetsPage({ sessionUser }) {
             <p className="rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               {showOnlyPending
                 ? "Mostrando todos os jogos abertos que ainda precisam de palpite."
-                : "Os jogos aparecem depois que voce selecionar uma data."}
+                : "Os jogos aparecem depois que você selecionar uma data."}
             </p>
             <button
               type="button"
@@ -1047,9 +1042,9 @@ export function MyBetsPage({ sessionUser }) {
           )
         ) : upcomingMatches.length === 0 ? (
           <section className="panel px-6 py-8">
-            <p className="text-sm font-semibold text-ink">Nenhuma partida disponivel.</p>
+            <p className="text-sm font-semibold text-ink">Nenhuma partida disponível.</p>
             <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
-              Quando partidas forem cadastradas, elas aparecerao aqui.
+              Quando partidas forem cadastradas, elas aparecerão aqui.
             </p>
           </section>
         ) : !selectedDate ? (
@@ -1079,7 +1074,7 @@ export function MyBetsPage({ sessionUser }) {
           <section className="panel px-6 py-8">
             <p className="text-sm font-semibold text-ink">Nenhuma partida neste filtro.</p>
             <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
-              Escolha outra data para consultar os jogos disponiveis.
+              Escolha outra data para consultar os jogos disponíveis.
             </p>
           </section>
         )}
@@ -1091,9 +1086,9 @@ export function MyBetsPage({ sessionUser }) {
           className="scroll-mt-28 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
         >
           <div>
-            <p className="eyebrow">Historico</p>
+            <p className="eyebrow">Histórico</p>
             <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-              Palpites ja registrados
+              Palpites já registrados
             </h3>
             <p className="mt-3 w-fit rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
               💡 Dica: É aqui que você pode editar e alterar os placares dos seus palpites já salvos.
@@ -1296,7 +1291,7 @@ export function MyBetsPage({ sessionUser }) {
             <section className="panel px-6 py-8">
               <p className="text-sm font-semibold text-ink">Nenhum palpite registrado.</p>
               <p className="mt-2 inline-block rounded-md border border-gray-700 bg-gray-800/90 px-3 py-2 text-sm text-gray-100 shadow-sm">
-                Assim que voce salvar seus primeiros palpites, eles aparecerao aqui.
+                Assim que você salvar seus primeiros palpites, eles aparecerão aqui.
               </p>
             </section>
           ) : filteredSubmittedBets.length === 0 ? (

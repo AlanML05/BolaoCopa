@@ -1108,7 +1108,6 @@ def build_user_performance_payload(current_user: dict[str, Any]) -> dict[str, An
                 "match_label": match_label(match),
                 "played_at": match["kickoff_at"],
                 "stage": match.get("sub_phase") or match["stage"],
-                "rank": current_rank,
                 "total_points": current_points,
                 "points_delta": current_points - previous_points,
                 "position_delta": None if previous_rank is None else previous_rank - current_rank,
@@ -1117,9 +1116,7 @@ def build_user_performance_payload(current_user: dict[str, Any]) -> dict[str, An
         previous_rank = current_rank
         previous_points = current_points
 
-    total_participants = current_ranking_data["summary"]["participants"]
     empty_entry = {
-        "rank": None,
         "total_points": 0,
         "exact_hits": 0,
         "draw_tendency_hits": 0,
@@ -1132,8 +1129,6 @@ def build_user_performance_payload(current_user: dict[str, Any]) -> dict[str, An
         "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
         "user": serialize_user(current_user),
         "total_points": int(entry["total_points"]),
-        "rank": entry["rank"],
-        "total_participants": total_participants,
         "exact_hits": int(entry["exact_hits"]),
         "tendency_hits": int(entry["draw_tendency_hits"]) + int(entry["winner_tendency_hits"]),
         "evaluated_bets": int(entry["evaluated_bets"]),

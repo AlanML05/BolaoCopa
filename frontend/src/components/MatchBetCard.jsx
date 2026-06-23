@@ -31,12 +31,12 @@ function getCrowdStatsMessage(stats, match) {
     {
       type: "home",
       percentage: Number(stats.home_win_percentage) || 0,
-      text: `${formatPercentage(stats.home_win_percentage)}% da galera aposta na vitoria de ${match.home_team}`,
+      text: `${formatPercentage(stats.home_win_percentage)}% da galera aposta na vitória de ${match.home_team}`,
     },
     {
       type: "away",
       percentage: Number(stats.away_win_percentage) || 0,
-      text: `${formatPercentage(stats.away_win_percentage)}% da galera aposta na vitoria de ${match.away_team}`,
+      text: `${formatPercentage(stats.away_win_percentage)}% da galera aposta na vitória de ${match.away_team}`,
     },
     {
       type: "draw",
@@ -46,7 +46,7 @@ function getCrowdStatsMessage(stats, match) {
   ].sort((first, second) => second.percentage - first.percentage);
 
   const leadingOutcome = outcomes[0];
-  return `Tendencia da galera: ${leadingOutcome.text}.`;
+  return `Tendência da galera: ${leadingOutcome.text}.`;
 }
 
 export function MatchBetCard({
@@ -122,8 +122,8 @@ export function MatchBetCard({
             {match.existing_bet.predicted_home_score} x {match.existing_bet.predicted_away_score}
           </p>
           <p className="mt-3 text-sm text-muted">
-            Registrado em {formatDateTime(match.existing_bet.created_at)}. Edicoes ficam no
-            Historico enquanto a janela estiver aberta.
+            Registrado em {formatDateTime(match.existing_bet.created_at)}. Edições ficam no
+            Histórico enquanto a janela estiver aberta.
           </p>
           {crowdStatsMessage ? (
             <p className="mt-3 rounded-xl border border-gray-700/70 bg-gray-800/70 px-3 py-2 text-center text-xs text-gray-300">
