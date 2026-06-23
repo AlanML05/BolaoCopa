@@ -7,6 +7,7 @@ import { AdminRankingDashboard } from "./pages/AdminRankingDashboard";
 import { GroupStandingsPage } from "./pages/GroupStandingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyBetsPage } from "./pages/MyBetsPage";
+import { RulesPage } from "./pages/RulesPage";
 import { SignUpPage } from "./pages/SignUpPage";
 
 function RootRedirect() {
@@ -84,6 +85,7 @@ function AppRoutes() {
           }
         />
         <Route path="/standings" element={<GroupStandingsPage sessionUser={currentUser} />} />
+        <Route path="/regras" element={<RulesPage />} />
       </Route>
       <Route
         path="*"

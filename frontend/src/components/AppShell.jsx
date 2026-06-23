@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 const navigation = [
   { to: "/my-bets", label: "Meus Palpites", roles: ["user"] },
   { to: "/standings", label: "Tabelas dos Grupos", roles: ["user"] },
+  { to: "/regras", label: "Regras", roles: ["user", "admin"] },
   { to: "/admin/ranking", label: "Painel do Admin", roles: ["admin"] },
 ];
 
