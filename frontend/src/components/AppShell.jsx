@@ -5,6 +5,8 @@ const navigation = [
   { to: "/standings", label: "Tabelas dos Grupos", roles: ["user"] },
   { to: "/regras", label: "Regras", roles: ["user", "admin"] },
   { to: "/admin/ranking", label: "Painel do Admin", roles: ["admin"] },
+  { to: "/admin/jogos", label: "Jogos", roles: ["admin"] },
+  { to: "/admin/participantes", label: "Participantes", roles: ["admin"] },
 ];
 
 export function AppShell({ sessionUser, onLogout, children }) {

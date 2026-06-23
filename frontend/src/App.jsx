@@ -3,7 +3,9 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom
 
 import { AppShell } from "./components/AppShell";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AdminMatchesPage } from "./pages/AdminMatchesPage";
 import { AdminRankingDashboard } from "./pages/AdminRankingDashboard";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { GroupStandingsPage } from "./pages/GroupStandingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MyBetsPage } from "./pages/MyBetsPage";
@@ -79,6 +81,26 @@ function AppRoutes() {
           element={
             currentUser?.is_admin ? (
               <AdminRankingDashboard sessionUser={currentUser} />
+            ) : (
+              <Navigate to="/my-bets" replace />
+            )
+          }
+        />
+        <Route
+          path="/admin/jogos"
+          element={
+            currentUser?.is_admin ? (
+              <AdminMatchesPage sessionUser={currentUser} />
+            ) : (
+              <Navigate to="/my-bets" replace />
+            )
+          }
+        />
+        <Route
+          path="/admin/participantes"
+          element={
+            currentUser?.is_admin ? (
+              <AdminUsersPage sessionUser={currentUser} />
             ) : (
               <Navigate to="/my-bets" replace />
             )

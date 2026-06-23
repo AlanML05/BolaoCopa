@@ -1,34 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import html2canvas from "html2canvas";
 
-import { MatchManager } from "../components/MatchManager";
-import { MatchResultManager } from "../components/MatchResultManager";
 import { RankingTable } from "../components/RankingTable";
 import { StatCard } from "../components/StatCard";
-import {
-  deleteMatch,
-  getAdminDashboard,
-  updateMatch,
-  updateMatchResult,
-  updatePaymentStatus,
-} from "../services/api";
+import { getAdminDashboard } from "../services/api";
 import {
   formatCurrency,
   formatDateTime,
   formatPercentage,
 } from "../services/formatters";
-
-function createResultForms(matches) {
-  return matches.reduce((accumulator, match) => {
-    accumulator[match.id] = {
-      homeScore:
-        match.home_score === null || match.home_score === undefined ? "" : String(match.home_score),
-      awayScore:
-        match.away_score === null || match.away_score === undefined ? "" : String(match.away_score),
-    };
-    return accumulator;
-  }, {});
-}
 
 const ALL_USERS = "all-users";
 const ALL_PHASES = "all-phases";
@@ -99,30 +80,13 @@ function formatRankPosition(position) {
 export function AdminRankingDashboard({ sessionUser }) {
   const [dashboard, setDashboard] = useState(null);
   const mysteryRankingRef = useRef(null);
-  const [resultForms, setResultForms] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exportingMysteryRanking, setExportingMysteryRanking] = useState(false);
-  const [busyUserId, setBusyUserId] = useState("");
-  const [busyMatchId, setBusyMatchId] = useState("");
-  const [deletingMatchId, setDeletingMatchId] = useState("");
-  const [updatingMatchId, setUpdatingMatchId] = useState("");
-  const [showPaidPoolOnly, setShowPaidPoolOnly] = useState(false);
   const [selectedUser, setSelectedUser] = useState(ALL_USERS);
   const [selectedPhase, setSelectedPhase] = useState(ALL_PHASES);
   const [selectedSubPhase, setSelectedSubPhase] = useState(ALL_SUB_PHASES);
-
-  function syncDashboard(nextDashboard) {
-    setDashboard(nextDashboard);
-    setResultForms(createResultForms(nextDashboard.matches));
-  }
-
-  async function refreshDashboard() {
-    const payload = await getAdminDashboard(sessionUser.accessToken);
-    syncDashboard(payload);
-    return payload;
-  }
 
   useEffect(() => {
     let active = true;
@@ -134,7 +98,7 @@ export function AdminRankingDashboard({ sessionUser }) {
       try {
         const payload = await getAdminDashboard(sessionUser.accessToken);
         if (active) {
-          syncDashboard(payload);
+          setDashboard(payload);
         }
       } catch (requestError) {
         if (active) {
@@ -153,106 +117,6 @@ export function AdminRankingDashboard({ sessionUser }) {
       active = false;
     };
   }, [sessionUser.accessToken]);
-
-  async function handleUserFinancialStatusChange(user, updates) {
-    setBusyUserId(user.id);
-    setError("");
-    setNotice("");
-
-    const nextPayload = {
-      is_paid_pool: user.is_paid_pool,
-      paid: user.paid,
-      ...updates,
-    };
-
-    if (!nextPayload.is_paid_pool) {
-      nextPayload.paid = false;
-    }
-
-    try {
-      const response = await updatePaymentStatus(sessionUser.accessToken, user.id, nextPayload);
-      syncDashboard(response.dashboard);
-      setNotice(response.message);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBusyUserId("");
-    }
-  }
-
-  function handleResultFieldChange(matchId, field, value) {
-    setResultForms((current) => ({
-      ...current,
-      [matchId]: {
-        ...current[matchId],
-        [field]: value,
-      },
-    }));
-  }
-
-  async function handleMatchResultSave(matchId) {
-    const form = resultForms[matchId];
-    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
-    const homeScore = Number(form?.homeScore);
-    const awayScore = Number(form?.awayScore);
-
-    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
-      setError("Preencha os dois placares reais antes de salvar.");
-      setNotice("");
-      return;
-    }
-
-    setBusyMatchId(matchId);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await updateMatchResult(sessionUser.accessToken, matchId, {
-        home_score: homeScore,
-        away_score: awayScore,
-      });
-      await refreshDashboard();
-      setNotice(response.message);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setBusyMatchId("");
-    }
-  }
-
-  async function handleMatchDelete(matchId) {
-    setDeletingMatchId(matchId);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await deleteMatch(sessionUser.accessToken, matchId);
-      syncDashboard(response.dashboard);
-      setNotice(response.message);
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setDeletingMatchId("");
-    }
-  }
-
-  async function handleMatchUpdate(matchId, matchPayload) {
-    setUpdatingMatchId(matchId);
-    setError("");
-    setNotice("");
-
-    try {
-      const response = await updateMatch(sessionUser.accessToken, matchId, matchPayload);
-      syncDashboard(response.dashboard);
-      setNotice(response.message);
-      return true;
-    } catch (requestError) {
-      setError(requestError.message);
-      return false;
-    } finally {
-      setUpdatingMatchId("");
-    }
-  }
 
   async function handleMysteryRankingExport() {
     if (!mysteryRankingRef.current) {
@@ -334,109 +198,16 @@ export function AdminRankingDashboard({ sessionUser }) {
 
   const paidRanking = dashboard.paid_ranking ?? dashboard.ranking.filter((entry) => entry.is_paid_pool);
   const mysteryRanking = dashboard.ranking.slice(0, 10);
-  const financialUsers = showPaidPoolOnly
-    ? dashboard.users.filter((user) => user.is_paid_pool)
-    : dashboard.users;
-  const financialControlSection = (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="eyebrow">Financeiro</p>
-          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-            Controle do Bolao Pago
-          </h3>
-        </div>
-        <label className="flex items-center justify-between gap-3 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-          <span>Mostrar apenas participantes</span>
-          <input
-            type="checkbox"
-            className="h-5 w-5 accent-sky-300"
-            checked={showPaidPoolOnly}
-            onChange={(event) => setShowPaidPoolOnly(event.target.checked)}
-          />
-        </label>
-      </div>
-      <div className="space-y-3">
-        {financialUsers.map((user) => (
-          <article
-            key={user.id}
-            className="panel space-y-4 px-5 py-4 transition hover:border-accent/30"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-semibold text-ink">{user.name}</p>
-                <p className="mt-1 text-sm text-muted">{user.department || user.username}</p>
-              </div>
-              <span
-                className={`data-pill ${
-                  user.is_paid_pool ? "border-accent/20 text-accent" : "text-muted"
-                }`}
-              >
-                {user.is_paid_pool ? "No Bolao Pago" : "Ranking Geral"}
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-                <span>Participa do Bolao Pago?</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 accent-sky-300"
-                  checked={Boolean(user.is_paid_pool)}
-                  disabled={busyUserId === user.id}
-                  onChange={(event) =>
-                    handleUserFinancialStatusChange(user, {
-                      is_paid_pool: event.target.checked,
-                      paid: event.target.checked ? user.paid : false,
-                    })
-                  }
-                />
-              </label>
-
-              {user.is_paid_pool ? (
-                <label className="flex items-center justify-between gap-4 rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3 text-sm text-ink">
-                  <span>Pagamento Realizado?</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 accent-sky-300"
-                    checked={Boolean(user.paid)}
-                    disabled={busyUserId === user.id}
-                    onChange={(event) =>
-                      handleUserFinancialStatusChange(user, {
-                        paid: event.target.checked,
-                      })
-                    }
-                  />
-                </label>
-              ) : null}
-            </div>
-          </article>
-        ))}
-
-        {financialUsers.length === 0 ? (
-          <section className="panel px-5 py-5">
-            <p className="text-sm font-semibold text-ink">
-              Nenhum participante no filtro atual.
-            </p>
-            <p className="mt-2 text-sm text-muted">
-              Marque usuarios como participantes do Bolao Pago para eles aparecerem aqui.
-            </p>
-          </section>
-        ) : null}
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-7">
       <section className="panel border-accent/10 px-6 py-7">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <p className="eyebrow">Painel do Admin</p>
-            <h2 className="headline mt-4">Disputa do Ranking</h2>
+            <h2 className="headline mt-4">Central do Bolao</h2>
             <p className="subtle-copy mt-3">
-              Acompanhe a disputa ponto a ponto! A tabela e atualizada automaticamente a cada
-              fim de jogo, mantendo o suspense do bolao vivo ate o apito final.
+              Acompanhe os rankings, confira os palpites e acesse as areas de operacao sem
+              poluir a tela principal.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -494,30 +265,56 @@ export function AdminRankingDashboard({ sessionUser }) {
         </section>
       ) : null}
 
-      <MatchManager
-        matches={dashboard.matches}
-        deletingMatchId={deletingMatchId}
-        updatingMatchId={updatingMatchId}
-        onUpdate={handleMatchUpdate}
-        onDelete={handleMatchDelete}
-      />
+      <section className="grid gap-4 lg:grid-cols-2">
+        <Link
+          to="/admin/jogos"
+          className="panel-strong group flex min-h-[180px] flex-col justify-between border-accent/15 px-6 py-6 transition hover:-translate-y-0.5 hover:border-accent/45 hover:bg-accent/5"
+        >
+          <div>
+            <p className="eyebrow">Partidas</p>
+            <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
+              Gerenciar jogos
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-muted">
+              Edite confrontos do mata-mata, datas, estadios e lance os placares oficiais.
+            </p>
+          </div>
+          <span className="mt-6 text-sm font-semibold text-accent transition group-hover:translate-x-1">
+            Abrir gerenciamento
+          </span>
+        </Link>
+
+        <Link
+          to="/admin/participantes"
+          className="panel-strong group flex min-h-[180px] flex-col justify-between border-warning/15 px-6 py-6 transition hover:-translate-y-0.5 hover:border-warning/45 hover:bg-warning/5"
+        >
+          <div>
+            <p className="eyebrow">Participantes</p>
+            <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
+              Gerenciar participantes
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-muted">
+              Controle usuarios, remocoes, emojis liberados e participacao no Bolao Pago.
+            </p>
+          </div>
+          <span className="mt-6 text-sm font-semibold text-warning transition group-hover:translate-x-1">
+            Abrir participantes
+          </span>
+        </Link>
+      </section>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
-        <div className="space-y-5">
-          <div className="space-y-4">
-            <div>
-              <p className="eyebrow">Ranking Geral</p>
-              <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-                Camisa do Brasil
-              </h3>
-              <p className="mt-2 text-sm text-muted">
-                Todos os participantes aparecem nesta classificacao.
-              </p>
-            </div>
-            <RankingTable ranking={dashboard.ranking} />
+        <div className="space-y-4">
+          <div>
+            <p className="eyebrow">Ranking Geral</p>
+            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+              Camisa do Brasil
+            </h3>
+            <p className="mt-2 text-sm text-muted">
+              Todos os participantes aparecem nesta classificacao.
+            </p>
           </div>
-
-          {financialControlSection}
+          <RankingTable ranking={dashboard.ranking} />
         </div>
 
         <div className="space-y-4">
@@ -615,16 +412,6 @@ export function AdminRankingDashboard({ sessionUser }) {
             </article>
           ))}
         </div>
-      </section>
-
-      <section>
-        <MatchResultManager
-          matches={dashboard.matches}
-          forms={resultForms}
-          busyMatchId={busyMatchId}
-          onFieldChange={handleResultFieldChange}
-          onSave={handleMatchResultSave}
-        />
       </section>
 
       <section className="space-y-4">
@@ -729,6 +516,7 @@ export function AdminRankingDashboard({ sessionUser }) {
           </div>
         </div>
       </section>
+
     </div>
   );
 }

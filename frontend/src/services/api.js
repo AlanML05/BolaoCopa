@@ -121,6 +121,13 @@ export function deleteMatch(token, targetMatchId) {
   });
 }
 
+export function deleteUserByEmail(token, email) {
+  return request(`/admin/users/by-email/${encodeURIComponent(email)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export function updatePaymentStatus(token, targetUserId, statusPayload) {
   const body =
     typeof statusPayload === "boolean" ? { paid: statusPayload } : statusPayload;

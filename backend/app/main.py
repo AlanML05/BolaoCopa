@@ -314,6 +314,22 @@ def fetch_user_by_login(normalized_username: str) -> dict[str, Any] | None:
     return None if row is None else normalize_user(row)
 
 
+def fetch_user_by_email(email: str) -> dict[str, Any] | None:
+    normalized_email = normalize_login_value(email)
+    with db_cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT {USER_COLUMNS}
+            FROM users
+            WHERE email = %s
+            LIMIT 1
+            """,
+            (normalized_email,),
+        )
+        row = cursor.fetchone()
+    return None if row is None else normalize_user(row)
+
+
 def fetch_all_users() -> list[dict[str, Any]]:
     with db_cursor() as cursor:
         cursor.execute(
@@ -1661,6 +1677,38 @@ def update_payment_status(
     return {
         "message": "Status financeiro atualizado.",
         "user": serialize_user(updated_user),
+        "dashboard": build_admin_dashboard_payload(),
+    }
+
+
+@app.delete("/admin/users/by-email/{email}")
+def delete_user_by_email(
+    email: str,
+    _: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    user = fetch_user_by_email(email)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario nao encontrado.")
+
+    if user["role"] != "user":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Apenas participantes comuns podem ser removidos por esta acao.",
+        )
+
+    with db_cursor(commit=True) as cursor:
+        cursor.execute(
+            """
+            DELETE FROM users
+            WHERE email = %s
+              AND is_admin = 0
+            """,
+            (normalize_login_value(email),),
+        )
+
+    return {
+        "message": f"Usuario {user['email']} removido com sucesso. O emoji foi liberado para novos cadastros.",
+        "user": serialize_user(user),
         "dashboard": build_admin_dashboard_payload(),
     }
 
