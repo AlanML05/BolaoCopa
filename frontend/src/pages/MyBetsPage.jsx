@@ -9,6 +9,7 @@ import {
   createBet,
   fetchMatchStats,
   getMyBetsOverview,
+  getMyPerformance,
   updateBet,
 } from "../services/api";
 import { formatDateTime, formatScore } from "../services/formatters";
@@ -177,10 +178,240 @@ function truncatePdfText(doc, text, maxWidth) {
   return `${truncated}...`;
 }
 
+function formatRankLabel(rank) {
+  return rank ? `${rank}º` : "--";
+}
+
+function formatPositionMovement(delta) {
+  if (delta === null || delta === undefined) {
+    return "Primeiro registro";
+  }
+
+  if (delta > 0) {
+    return `Subiu ${delta} posicao${delta === 1 ? "" : "es"}`;
+  }
+
+  if (delta < 0) {
+    const positions = Math.abs(delta);
+    return `Caiu ${positions} posicao${positions === 1 ? "" : "es"}`;
+  }
+
+  return "Manteve a posicao";
+}
+
+function getMovementTone(delta) {
+  if (delta > 0) {
+    return "text-success";
+  }
+
+  if (delta < 0) {
+    return "text-danger";
+  }
+
+  return "text-muted";
+}
+
+function PositionTrendChart({ history, totalParticipants }) {
+  const chartHistory = history ?? [];
+
+  if (chartHistory.length === 0) {
+    return (
+      <div className="rounded-3xl border border-line/70 bg-canvas/70 px-5 py-6 text-sm text-muted">
+        O grafico aparece assim que houver jogos finalizados e pontuados.
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 210;
+  const paddingX = 34;
+  const paddingY = 26;
+  const rankDomainMax = Math.max(
+    totalParticipants || 1,
+    ...chartHistory.map((item) => Number(item.rank) || 1),
+    1,
+  );
+  const usableWidth = width - paddingX * 2;
+  const usableHeight = height - paddingY * 2;
+  const divisor = Math.max(chartHistory.length - 1, 1);
+  const rankDivisor = Math.max(rankDomainMax - 1, 1);
+  const points = chartHistory.map((item, index) => {
+    const x = paddingX + (index / divisor) * usableWidth;
+    const y = paddingY + ((Number(item.rank) - 1) / rankDivisor) * usableHeight;
+    return {
+      ...item,
+      x,
+      y,
+    };
+  });
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ");
+  const lastPoint = points[points.length - 1];
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-line/70 bg-slate-950/40 px-3 py-3">
+      <svg
+        className="h-auto w-full"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Grafico de evolucao da sua posicao no ranking"
+      >
+        <defs>
+          <linearGradient id="positionTrendGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+            <stop offset="0%" stopColor="#facc15" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#7dd3fc" stopOpacity="0.95" />
+          </linearGradient>
+          <filter id="positionTrendGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        <line
+          x1={paddingX}
+          x2={width - paddingX}
+          y1={paddingY}
+          y2={paddingY}
+          stroke="rgba(148,163,184,0.26)"
+          strokeDasharray="5 7"
+        />
+        <line
+          x1={paddingX}
+          x2={width - paddingX}
+          y1={height - paddingY}
+          y2={height - paddingY}
+          stroke="rgba(148,163,184,0.16)"
+          strokeDasharray="5 7"
+        />
+        <text x={paddingX} y={paddingY - 8} fill="#94a3b8" fontSize="12">
+          1º
+        </text>
+        <text x={paddingX} y={height - paddingY + 18} fill="#64748b" fontSize="12">
+          {formatRankLabel(rankDomainMax)}
+        </text>
+
+        {points.length > 1 ? (
+          <path
+            d={linePath}
+            fill="none"
+            stroke="url(#positionTrendGradient)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="4"
+            filter="url(#positionTrendGlow)"
+          />
+        ) : null}
+
+        {points.map((point, index) => (
+          <g key={`${point.match_id}-${index}`}>
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={point.match_id === lastPoint.match_id ? 6 : 4}
+              fill={point.match_id === lastPoint.match_id ? "#facc15" : "#7dd3fc"}
+              stroke="#020617"
+              strokeWidth="3"
+            />
+            <title>
+              {`${point.match_label}: ${formatRankLabel(point.rank)} lugar, ${point.total_points} pontos`}
+            </title>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function PerformanceOverview({ performance }) {
+  if (!performance) {
+    return null;
+  }
+
+  const history = performance.position_history ?? [];
+  const lastHistoryItem = history[history.length - 1];
+  const movementLabel = formatPositionMovement(lastHistoryItem?.position_delta);
+  const movementTone = getMovementTone(lastHistoryItem?.position_delta);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[0.82fr_1.18fr]">
+      <article className="panel-strong relative overflow-hidden border-yellow-500/20 px-6 py-6">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(250,204,21,0.14),transparent_42%)]" />
+        <div className="relative">
+          <p className="eyebrow text-yellow-300/90">Performance</p>
+          <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
+            Sua pontuacao acumulada
+          </h3>
+          <div className="mt-6 flex flex-wrap items-end gap-4">
+            <span className="font-display text-7xl font-black leading-none text-yellow-300 drop-shadow-[0_0_18px_rgba(250,204,21,0.28)]">
+              {performance.total_points}
+            </span>
+            <span className="pb-2 text-sm font-semibold uppercase tracking-[0.24em] text-muted">
+              pontos
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Posicao</p>
+              <p className="mt-2 text-xl font-semibold text-ink">
+                {formatRankLabel(performance.rank)}
+                <span className="text-sm font-normal text-muted">
+                  {" "}
+                  / {performance.total_participants}
+                </span>
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Exatos</p>
+              <p className="mt-2 text-xl font-semibold text-ink">{performance.exact_hits}</p>
+            </div>
+            <div className="rounded-2xl border border-line/80 bg-canvas/70 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">Tendencias</p>
+              <p className="mt-2 text-xl font-semibold text-ink">{performance.tendency_hits}</p>
+            </div>
+          </div>
+
+          <p className={`mt-5 text-sm font-semibold ${movementTone}`}>
+            {movementLabel}
+          </p>
+        </div>
+      </article>
+
+      <article className="panel-strong px-6 py-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="eyebrow">Evolucao</p>
+            <h3 className="mt-3 font-display text-2xl font-semibold text-ink">
+              Historico de posicoes
+            </h3>
+          </div>
+          <span className="data-pill">
+            {history.length} jogo{history.length === 1 ? "" : "s"} finalizado{history.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <p className="mt-3 text-sm text-muted">
+          A linha mostra somente a sua posicao no ranking geral apos cada jogo finalizado.
+        </p>
+        <div className="mt-5">
+          <PositionTrendChart
+            history={history}
+            totalParticipants={performance.total_participants}
+          />
+        </div>
+      </article>
+    </section>
+  );
+}
+
 export function MyBetsPage({ sessionUser }) {
   const location = useLocation();
   const [overview, setOverview] = useState(null);
   const [matchStats, setMatchStats] = useState({});
+  const [performance, setPerformance] = useState(null);
   const [draftBets, setDraftBets] = useState({});
   const [editForms, setEditForms] = useState({});
   const [selectedDate, setSelectedDate] = useState("");
@@ -210,9 +441,10 @@ export function MyBetsPage({ sessionUser }) {
       setError("");
 
       try {
-        const [payload, statsPayload] = await Promise.all([
+        const [payload, statsPayload, performancePayload] = await Promise.all([
           getMyBetsOverview(sessionUser.accessToken),
           fetchMatchStats(sessionUser.accessToken),
+          getMyPerformance(sessionUser.accessToken),
         ]);
         if (!active) {
           return;
@@ -220,6 +452,7 @@ export function MyBetsPage({ sessionUser }) {
 
         setOverview(payload);
         setMatchStats(statsPayload ?? {});
+        setPerformance(performancePayload ?? null);
         setDraftBets({});
         setEditForms(createSubmittedBetForms(payload.submitted_bets));
       } catch (requestError) {
@@ -356,12 +589,14 @@ export function MyBetsPage({ sessionUser }) {
   }
 
   async function refreshOverviewAndStats() {
-    const [refreshed, statsPayload] = await Promise.all([
+    const [refreshed, statsPayload, performancePayload] = await Promise.all([
       getMyBetsOverview(sessionUser.accessToken),
       fetchMatchStats(sessionUser.accessToken),
+      getMyPerformance(sessionUser.accessToken),
     ]);
     setOverview(refreshed);
     setMatchStats(statsPayload ?? {});
+    setPerformance(performancePayload ?? null);
     setEditForms(createSubmittedBetForms(refreshed.submitted_bets));
     return refreshed;
   }
@@ -688,6 +923,8 @@ export function MyBetsPage({ sessionUser }) {
           </div>
         </div>
       </section>
+
+      <PerformanceOverview performance={performance} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard

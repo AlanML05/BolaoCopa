@@ -70,6 +70,10 @@ export function getMyBetsOverview(token) {
   return request("/me/bets-overview", { token });
 }
 
+export function getMyPerformance(token) {
+  return request("/me/performance", { token });
+}
+
 export function createBet(token, betPayload) {
   return request("/me/bets", {
     method: "POST",

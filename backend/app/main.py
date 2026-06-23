@@ -1063,6 +1063,85 @@ def build_admin_dashboard_payload() -> dict[str, Any]:
         ],
     }
 
+
+def find_ranking_entry(ranking: list[dict[str, Any]], user_id: str) -> dict[str, Any] | None:
+    return next((entry for entry in ranking if entry["user_id"] == user_id), None)
+
+
+def build_user_performance_payload(current_user: dict[str, Any]) -> dict[str, Any]:
+    users = fetch_all_users()
+    matches = fetch_all_matches()
+    bets = fetch_all_bets()
+    user_bets = [bet for bet in bets if bet["user_id"] == current_user["id"]]
+    current_ranking_data = build_ranking(users=users, matches=matches, bets=bets)
+    current_entry = find_ranking_entry(current_ranking_data["ranking"], current_user["id"])
+
+    finished_matches = sorted(
+        [match for match in matches if is_match_finished(match)],
+        key=lambda match: (parse_datetime(match["kickoff_at"]), match["id"]),
+    )
+    position_history: list[dict[str, Any]] = []
+    checkpoint_matches: list[dict[str, Any]] = []
+    previous_rank: int | None = None
+    previous_points = 0
+
+    for match in finished_matches:
+        checkpoint_matches.append(match)
+        checkpoint_ranking_data = build_ranking(
+            users=users,
+            matches=checkpoint_matches,
+            bets=bets,
+        )
+        checkpoint_entry = find_ranking_entry(
+            checkpoint_ranking_data["ranking"],
+            current_user["id"],
+        )
+
+        if checkpoint_entry is None:
+            continue
+
+        current_rank = int(checkpoint_entry["rank"])
+        current_points = int(checkpoint_entry["total_points"])
+        position_history.append(
+            {
+                "match_id": match["id"],
+                "match_label": match_label(match),
+                "played_at": match["kickoff_at"],
+                "stage": match.get("sub_phase") or match["stage"],
+                "rank": current_rank,
+                "total_points": current_points,
+                "points_delta": current_points - previous_points,
+                "position_delta": None if previous_rank is None else previous_rank - current_rank,
+            }
+        )
+        previous_rank = current_rank
+        previous_points = current_points
+
+    total_participants = current_ranking_data["summary"]["participants"]
+    empty_entry = {
+        "rank": None,
+        "total_points": 0,
+        "exact_hits": 0,
+        "draw_tendency_hits": 0,
+        "winner_tendency_hits": 0,
+        "evaluated_bets": 0,
+    }
+    entry = current_entry or empty_entry
+
+    return {
+        "generated_at": datetime.now(SAO_PAULO_TZ).isoformat(),
+        "user": serialize_user(current_user),
+        "total_points": int(entry["total_points"]),
+        "rank": entry["rank"],
+        "total_participants": total_participants,
+        "exact_hits": int(entry["exact_hits"]),
+        "tendency_hits": int(entry["draw_tendency_hits"]) + int(entry["winner_tendency_hits"]),
+        "evaluated_bets": int(entry["evaluated_bets"]),
+        "submitted_bets": len(user_bets),
+        "position_history": position_history,
+    }
+
+
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1111,6 +1190,7 @@ def root() -> dict[str, Any]:
         "available_routes": [
             "/login",
             "/me/bets-overview",
+            "/me/performance",
             "/me/bets",
             "/me/bets/{bet_id}",
             "/api/bets/batch",
@@ -1166,7 +1246,6 @@ def get_match_stats(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, 
         home_score = int(row["palpite_a"])
         away_score = int(row["palpite_b"])
         total = int(row["total"])
-        score_key = f"{home_score}x{away_score}"
         match_stats = stats_by_match.setdefault(
             match_id,
             {
@@ -1174,12 +1253,10 @@ def get_match_stats(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, 
                 "home_win_count": 0,
                 "away_win_count": 0,
                 "draw_count": 0,
-                "score_counts": {},
             },
         )
 
         match_stats["total_bets"] += total
-        match_stats["score_counts"][score_key] = match_stats["score_counts"].get(score_key, 0) + total
 
         if home_score > away_score:
             match_stats["home_win_count"] += total
@@ -1192,11 +1269,6 @@ def get_match_stats(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, 
 
     for match_id, match_stats in stats_by_match.items():
         total_bets = int(match_stats["total_bets"])
-        score_counts = match_stats["score_counts"]
-        favorite_score, favorite_score_count = sorted(
-            score_counts.items(),
-            key=lambda item: (-item[1], item[0]),
-        )[0]
 
         def percentage(count: int) -> float:
             return round((count / total_bets) * 100, 1) if total_bets else 0.0
@@ -1206,9 +1278,6 @@ def get_match_stats(_: dict[str, Any] = Depends(get_current_user)) -> dict[str, 
             "home_win_percentage": percentage(match_stats["home_win_count"]),
             "away_win_percentage": percentage(match_stats["away_win_count"]),
             "draw_percentage": percentage(match_stats["draw_count"]),
-            "favorite_score": favorite_score,
-            "favorite_score_count": int(favorite_score_count),
-            "favorite_score_percentage": percentage(int(favorite_score_count)),
         }
 
     return response
@@ -1368,6 +1437,17 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
         "upcoming_matches": upcoming_matches,
         "submitted_bets": submitted_bets,
     }
+
+
+@app.get("/me/performance")
+def get_my_performance(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    if current_user["role"] != "user":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A performance individual e exclusiva para usuarios comuns.",
+        )
+
+    return build_user_performance_payload(current_user)
 
 
 @app.post("/me/bets", status_code=status.HTTP_201_CREATED)

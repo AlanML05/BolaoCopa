@@ -46,9 +46,7 @@ function getCrowdStatsMessage(stats, match) {
   ].sort((first, second) => second.percentage - first.percentage);
 
   const leadingOutcome = outcomes[0];
-  const favoriteScore = stats.favorite_score ? ` Placar favorito: ${stats.favorite_score}.` : "";
-
-  return `Tendencia da galera: ${leadingOutcome.text}.${favoriteScore}`;
+  return `Tendencia da galera: ${leadingOutcome.text}.`;
 }
 
 export function MatchBetCard({
