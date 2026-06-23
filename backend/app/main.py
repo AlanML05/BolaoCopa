@@ -16,7 +16,7 @@ from .db import db_cursor
 from .security import create_access_token, decode_access_token, get_password_hash, verify_password
 
 BET_PRICE = 100
-PRIZE_DISTRIBUTION = {1: 0.60, 2: 0.30, 3: 0.10}
+PRIZE_DISTRIBUTION = {1: 0.70, 2: 0.20, 3: 0.10}
 BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]

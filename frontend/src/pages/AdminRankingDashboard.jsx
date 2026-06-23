@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { jsPDF } from "jspdf";
 import { Link } from "react-router-dom";
 import html2canvas from "html2canvas";
 
@@ -77,6 +78,46 @@ function formatRankPosition(position) {
   return `${position}º`;
 }
 
+function sanitizePdfText(value) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/[\uFE0E\uFE0F\u200D]/g, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const PODIUM_CONFIG = {
+  1: {
+    label: "1º lugar",
+    heightClass: "min-h-[310px] lg:min-h-[390px]",
+    ringClass: "border-yellow-100/80 bg-yellow-300 text-slate-950 shadow-[0_0_22px_rgba(250,204,21,0.42)]",
+    amountClass: "text-yellow-100",
+    cardClass: "border-yellow-300/45 bg-yellow-500/10",
+    baseClass: "from-yellow-300/45 via-yellow-500/24 to-yellow-950/10",
+    pedestalClass: "border-yellow-200/45 bg-gradient-to-r from-yellow-300/28 via-yellow-400/18 to-yellow-600/22",
+  },
+  2: {
+    label: "2º lugar",
+    heightClass: "min-h-[275px] lg:mt-16 lg:min-h-[320px]",
+    ringClass: "border-slate-100/75 bg-slate-200 text-slate-950 shadow-[0_0_18px_rgba(203,213,225,0.3)]",
+    amountClass: "text-slate-100",
+    cardClass: "border-slate-200/35 bg-slate-200/10",
+    baseClass: "from-slate-200/35 via-slate-400/18 to-slate-950/10",
+    pedestalClass: "border-slate-100/35 bg-gradient-to-r from-slate-100/24 via-slate-300/16 to-slate-500/18",
+  },
+  3: {
+    label: "3º lugar",
+    heightClass: "min-h-[245px] lg:mt-28 lg:min-h-[275px]",
+    ringClass: "border-amber-300/55 bg-amber-700 text-amber-50 shadow-[0_0_18px_rgba(180,83,9,0.3)]",
+    amountClass: "text-amber-200",
+    cardClass: "border-amber-700/45 bg-amber-700/10",
+    baseClass: "from-amber-700/34 via-amber-800/18 to-slate-950/10",
+    pedestalClass: "border-amber-600/40 bg-gradient-to-r from-amber-800/28 via-amber-700/18 to-orange-900/18",
+  },
+};
+
 export function AdminRankingDashboard({ sessionUser }) {
   const [dashboard, setDashboard] = useState(null);
   const mysteryRankingRef = useRef(null);
@@ -84,6 +125,7 @@ export function AdminRankingDashboard({ sessionUser }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [exportingMysteryRanking, setExportingMysteryRanking] = useState(false);
+  const [exportingPodiumPdf, setExportingPodiumPdf] = useState(false);
   const [selectedUser, setSelectedUser] = useState(ALL_USERS);
   const [selectedPhase, setSelectedPhase] = useState(ALL_PHASES);
   const [selectedSubPhase, setSelectedSubPhase] = useState(ALL_SUB_PHASES);
@@ -146,6 +188,139 @@ export function AdminRankingDashboard({ sessionUser }) {
     }
   }
 
+  async function handlePodiumPdfExport() {
+    if (!dashboard?.prize_pool?.distribution?.length) {
+      return;
+    }
+
+    setExportingPodiumPdf(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const orderedDistribution = [...dashboard.prize_pool.distribution].sort(
+        (first, second) => first.position - second.position,
+      );
+      const paidRankingByUserId = Object.fromEntries(
+        (dashboard.paid_ranking ?? []).map((entry) => [entry.user_id, entry]),
+      );
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 16;
+      const contentWidth = pageWidth - margin * 2;
+
+      doc.setFillColor(2, 6, 23);
+      doc.rect(0, 0, pageWidth, pageHeight, "F");
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(margin, 12, contentWidth, pageHeight - 24, 5, 5, "F");
+
+      doc.setFillColor(8, 47, 73);
+      doc.roundedRect(margin + 6, 20, contentWidth - 12, 40, 5, 5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(250, 204, 21);
+      doc.setFontSize(20);
+      doc.text("Podio do Bolao Pago", pageWidth / 2, 34, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(226, 232, 240);
+      doc.setFontSize(10);
+      doc.text(
+        sanitizePdfText(`Registro gerado em ${formatDateTime(dashboard.generated_at)}`),
+        pageWidth / 2,
+        43,
+        { align: "center" },
+      );
+      doc.setTextColor(148, 163, 184);
+      doc.text("Distribuicao oficial: 70% / 20% / 10%", pageWidth / 2, 51, {
+        align: "center",
+      });
+
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(margin + 8, 70, contentWidth - 16, 20, 4, 4, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(248, 250, 252);
+      doc.setFontSize(11);
+      doc.text("Pote total", margin + 14, 79);
+      doc.setTextColor(250, 204, 21);
+      doc.setFontSize(16);
+      doc.text(formatCurrency(dashboard.prize_pool.total_collected), margin + 14, 86);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184);
+      doc.setFontSize(9);
+      doc.text(
+        `${dashboard.prize_pool.paid_participants} pagamentos confirmados`,
+        pageWidth - margin - 14,
+        82,
+        { align: "right" },
+      );
+
+      const medalColors = {
+        1: [250, 204, 21],
+        2: [203, 213, 225],
+        3: [180, 83, 9],
+      };
+
+      orderedDistribution.forEach((item, index) => {
+        const y = 108 + index * 46;
+        const winner = item.user_id ? paidRankingByUserId[item.user_id] : null;
+        const medalColor = medalColors[item.position] ?? [125, 211, 252];
+        const participantName = sanitizePdfText(item.user_name || "Aguardando participante");
+
+        doc.setFillColor(index % 2 === 0 ? 15 : 30, index % 2 === 0 ? 23 : 41, index % 2 === 0 ? 42 : 59);
+        doc.roundedRect(margin + 8, y, contentWidth - 16, 34, 4, 4, "F");
+
+        doc.setFillColor(medalColor[0], medalColor[1], medalColor[2]);
+        doc.circle(margin + 24, y + 17, 9, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(2, 6, 23);
+        doc.setFontSize(11);
+        doc.text(`${item.position}`, margin + 24, y + 20, { align: "center" });
+
+        doc.setTextColor(248, 250, 252);
+        doc.setFontSize(14);
+        doc.text(participantName, margin + 40, y + 14);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(9);
+        doc.text(
+          sanitizePdfText(
+            winner
+              ? `${winner.total_points} pontos no Ranking Bolao Pago`
+              : "Sem participante elegivel no momento",
+          ),
+          margin + 40,
+          y + 22,
+        );
+
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(medalColor[0], medalColor[1], medalColor[2]);
+        doc.setFontSize(13);
+        doc.text(formatCurrency(item.amount), pageWidth - margin - 14, y + 14, {
+          align: "right",
+        });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text(formatPercentage(item.percentage), pageWidth - margin - 14, y + 23, {
+          align: "right",
+        });
+      });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.text("Documento gerado pelo painel administrativo.", pageWidth / 2, pageHeight - 18, {
+        align: "center",
+      });
+
+      doc.save("podio-bolao-pago.pdf");
+      setNotice("PDF do pódio gerado com sucesso.");
+    } catch {
+      setError("Não foi possível gerar o PDF do pódio.");
+    } finally {
+      setExportingPodiumPdf(false);
+    }
+  }
+
   const userFilterOptions = useMemo(
     () =>
       [...(dashboard?.users ?? [])].sort((first, second) =>
@@ -198,6 +373,11 @@ export function AdminRankingDashboard({ sessionUser }) {
 
   const paidRanking = dashboard.paid_ranking ?? dashboard.ranking.filter((entry) => entry.is_paid_pool);
   const mysteryRanking = dashboard.ranking.slice(0, 10);
+  const distributionByPosition = Object.fromEntries(
+    dashboard.prize_pool.distribution.map((item) => [item.position, item]),
+  );
+  const podiumDistribution = [2, 1, 3].map((position) => distributionByPosition[position]).filter(Boolean);
+
   return (
     <div className="space-y-7">
       <section className="panel border-accent/10 px-6 py-7">
@@ -220,6 +400,14 @@ export function AdminRankingDashboard({ sessionUser }) {
               {exportingMysteryRanking
                 ? "Gerando imagem..."
                 : "📸 Compartilhar Ranking Misterioso"}
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-yellow-400/45 bg-yellow-400/10 px-4 py-2 text-sm font-semibold text-yellow-200 shadow-[0_0_12px_rgba(234,179,8,0.22)] transition hover:border-yellow-300/70 hover:bg-yellow-400/15 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={handlePodiumPdfExport}
+              disabled={exportingPodiumPdf || dashboard.prize_pool.distribution.length === 0}
+            >
+              {exportingPodiumPdf ? "Gerando PDF..." : "🏆 Gerar PDF do Pódio"}
             </button>
             <span className="data-pill">Gerado em {formatDateTime(dashboard.generated_at)}</span>
             <span className="data-pill">Usuario: {sessionUser.name}</span>
@@ -382,35 +570,81 @@ export function AdminRankingDashboard({ sessionUser }) {
         </div>
       </div>
 
-      <section className="space-y-4">
-        <div>
-          <p className="eyebrow">Premiacao</p>
-          <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
-            Distribuicao do pote
-          </h3>
-          <p className="mt-2 text-sm text-muted">
-            O valor do pote usa apenas pagamentos confirmados; a ordem segue o Ranking Bolao Pago.
-          </p>
+      <section className="space-y-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="eyebrow">Premiação</p>
+            <h3 className="mt-2 font-display text-2xl font-semibold text-ink">
+              Pódio do Bolão Pago
+            </h3>
+            <p className="mt-2 text-sm text-muted">
+              Apenas participantes marcados no Bolão Pago entram nesta disputa: 70% para o
+              primeiro, 20% para o segundo e 10% para o terceiro.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/10 px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-yellow-200">
+              Pote atual
+            </p>
+            <p className="mt-2 font-display text-2xl font-semibold text-ink">
+              {formatCurrency(dashboard.prize_pool.total_collected)}
+            </p>
+          </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          {dashboard.prize_pool.distribution.map((item) => (
-            <article key={item.position} className="panel-strong border-accent/10 px-5 py-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-muted">
-                    {item.position} lugar
-                  </p>
-                  <p className="mt-2 font-display text-2xl font-semibold text-ink">
-                    {formatCurrency(item.amount)}
-                  </p>
-                </div>
-                <span className="data-pill">{formatPercentage(item.percentage)}</span>
-              </div>
-              <p className="mt-4 text-sm text-muted">
-                {item.user_name ? `Elegivel atual: ${item.user_name}` : "Sem participante elegivel."}
-              </p>
-            </article>
-          ))}
+
+        <div className="panel-strong relative overflow-hidden border-yellow-400/15 px-5 py-6">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(250,204,21,0.13),transparent_44%),linear-gradient(135deg,rgba(125,211,252,0.08),transparent_32%,rgba(250,204,21,0.08))]" />
+          <div className="relative grid gap-4 lg:grid-cols-3 lg:items-end">
+            {podiumDistribution.map((item) => {
+              const config = PODIUM_CONFIG[item.position] ?? PODIUM_CONFIG[3];
+
+              return (
+                <article
+                  key={item.position}
+                  className={`relative flex flex-col justify-between overflow-hidden rounded-3xl border px-5 py-5 shadow-glow ${config.cardClass} ${config.heightClass}`}
+                >
+                  <div
+                    className={`absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t ${config.baseClass}`}
+                  />
+                  <div className="relative">
+                    <div className="flex items-start justify-between gap-4">
+                      <span
+                        className={`flex h-16 w-16 items-center justify-center rounded-3xl border font-display text-2xl font-black ${config.ringClass}`}
+                      >
+                        {item.position}º
+                      </span>
+                      <span className="data-pill">{formatPercentage(item.percentage)}</span>
+                    </div>
+
+                    <p className="mt-5 text-xs font-semibold uppercase tracking-[0.24em] text-muted">
+                      {config.label}
+                    </p>
+                    <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
+                      {item.user_name || "Aguardando participante"}
+                    </h4>
+                    <p className={`mt-4 font-display text-3xl font-black ${config.amountClass}`}>
+                      {formatCurrency(item.amount)}
+                    </p>
+                  </div>
+
+                  <div className="relative mt-7 rounded-2xl border border-white/10 bg-slate-950/45 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted">
+                      Elegível atual
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-ink">
+                      {item.user_name
+                        ? "Atualiza automaticamente conforme o Ranking Bolão Pago muda."
+                        : "Marque participantes no Bolão Pago para preencher o pódio."}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`relative mt-5 h-6 rounded-2xl border ${config.pedestalClass}`}
+                  />
+                </article>
+              );
+            })}
+          </div>
         </div>
       </section>
 
