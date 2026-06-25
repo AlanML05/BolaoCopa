@@ -91,6 +91,32 @@ const rounds = [
   },
 ];
 
+const roundSideOrders = {
+  "round-of-32": {
+    left: [74, 77, 73, 75, 83, 84, 81, 82],
+    right: [76, 78, 79, 80, 86, 88, 85, 87],
+  },
+  "round-of-16": {
+    left: [89, 90, 93, 94],
+    right: [91, 92, 95, 96],
+  },
+  quarterfinals: {
+    left: [97, 98],
+    right: [99, 100],
+  },
+  semifinals: {
+    left: [101],
+    right: [102],
+  },
+};
+
+const roundMatchOrders = Object.fromEntries(
+  Object.entries(roundSideOrders).map(([roundKey, sides]) => [
+    roundKey,
+    [...sides.left, ...sides.right],
+  ]),
+);
+
 const roundSpacing = {
   "round-of-32": "gap-2",
   "round-of-16": "gap-8 pt-7",
@@ -121,16 +147,53 @@ function compareMatches(first, second) {
   return String(first.kickoff_at ?? "").localeCompare(String(second.kickoff_at ?? ""));
 }
 
+function compareRoundMatches(first, second, round) {
+  const order = roundMatchOrders[round.key] ?? [];
+  const firstNumber = getMatchNumber(first);
+  const secondNumber = getMatchNumber(second);
+  const firstOrder = order.indexOf(firstNumber);
+  const secondOrder = order.indexOf(secondNumber);
+
+  if (firstOrder !== -1 || secondOrder !== -1) {
+    if (firstOrder === -1) {
+      return 1;
+    }
+    if (secondOrder === -1) {
+      return -1;
+    }
+    return firstOrder - secondOrder;
+  }
+
+  return compareMatches(first, second);
+}
+
 function getRoundMatches(matches, round) {
   return matches
     .filter((match) => {
       const matchNumber = getMatchNumber(match);
       return matchNumber !== null && matchNumber >= round.from && matchNumber <= round.to;
     })
-    .sort(compareMatches);
+    .sort((first, second) => compareRoundMatches(first, second, round));
 }
 
-function splitRound(matches) {
+function getMatchesByOrder(matches, order) {
+  const matchesByNumber = new Map(
+    matches.map((match) => [getMatchNumber(match), match]),
+  );
+
+  return order.map((matchNumber) => matchesByNumber.get(matchNumber)).filter(Boolean);
+}
+
+function splitRound(matches, round) {
+  const sideOrder = roundSideOrders[round.key];
+
+  if (sideOrder) {
+    return {
+      left: getMatchesByOrder(matches, sideOrder.left),
+      right: getMatchesByOrder(matches, sideOrder.right),
+    };
+  }
+
   const middle = Math.ceil(matches.length / 2);
   return {
     left: matches.slice(0, middle),
@@ -377,7 +440,7 @@ export function KnockoutBracket({ matches }) {
   const champion = getFinalChampion(finalMatch);
   const roundGroups = rounds.map((round) => ({
     ...round,
-    ...splitRound(getRoundMatches(knockoutMatches, round)),
+    ...splitRound(getRoundMatches(knockoutMatches, round), round),
   }));
   const rightRounds = [...roundGroups].reverse();
 
