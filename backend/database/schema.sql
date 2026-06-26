@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS matches (
     estadio VARCHAR(120) NOT NULL DEFAULT '',
     placar_a TINYINT UNSIGNED NULL,
     placar_b TINYINT UNSIGNED NULL,
+    classificado_id INT NULL,
     finalizado TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS bets (
     match_id VARCHAR(50) NOT NULL,
     palpite_a TINYINT UNSIGNED NOT NULL,
     palpite_b TINYINT UNSIGNED NOT NULL,
+    classificado_id INT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_bets_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_bets_match FOREIGN KEY (match_id) REFERENCES matches (id) ON DELETE CASCADE,
