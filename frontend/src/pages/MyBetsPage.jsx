@@ -37,6 +37,10 @@ function createSubmittedBetForms(bets) {
     accumulator[bet.bet_id] = {
       homeScore: String(bet.predicted_home_score),
       awayScore: String(bet.predicted_away_score),
+      classificadoId:
+        bet.classificado_id === undefined || bet.classificado_id === null
+          ? ""
+          : String(bet.classificado_id),
     };
     return accumulator;
   }, {});
@@ -54,6 +58,11 @@ function getOriginalBetForm(match) {
       match?.existing_bet?.predicted_away_score === null
         ? ""
         : String(match.existing_bet.predicted_away_score),
+    classificadoId:
+      match?.existing_bet?.classificado_id === undefined ||
+      match?.existing_bet?.classificado_id === null
+        ? ""
+        : String(match.existing_bet.classificado_id),
   };
 }
 
@@ -65,11 +74,27 @@ function hasDraftChanges(match, draft) {
   const original = getOriginalBetForm(match);
   return (
     String(draft.homeScore ?? "") !== original.homeScore ||
-    String(draft.awayScore ?? "") !== original.awayScore
+    String(draft.awayScore ?? "") !== original.awayScore ||
+    String(draft.classificadoId ?? "") !== original.classificadoId
   );
 }
 
-function parseDraftScores(draft) {
+function isKnockoutMatch(match) {
+  return getTournamentPhaseLabel(match) === "Fase Mata-Mata" || match?.phase === "knockout";
+}
+
+function getClassifierPayload(match, homeScore, awayScore, classificadoId) {
+  const shouldSendClassifier = isKnockoutMatch(match) && homeScore === awayScore;
+
+  if (!shouldSendClassifier) {
+    return null;
+  }
+
+  const normalizedClassifier = Number(classificadoId);
+  return normalizedClassifier === 1 || normalizedClassifier === 2 ? normalizedClassifier : null;
+}
+
+function parseDraftScores(match, draft) {
   const hasBlankScore = draft?.homeScore === "" || draft?.awayScore === "";
   const homeScore = Number(draft?.homeScore);
   const awayScore = Number(draft?.awayScore);
@@ -88,7 +113,13 @@ function parseDraftScores(draft) {
     return null;
   }
 
-  return { homeScore, awayScore };
+  const classificadoId = getClassifierPayload(match, homeScore, awayScore, draft?.classificadoId);
+
+  if (isKnockoutMatch(match) && homeScore === awayScore && classificadoId === null) {
+    return null;
+  }
+
+  return { homeScore, awayScore, classificadoId };
 }
 
 function getMatchDateKey(match) {
@@ -110,7 +141,7 @@ function getSubPhaseLabel(match) {
 }
 
 function getTournamentPhaseLabel(match) {
-  return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
+  return match?.tournament_phase || (match?.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
 }
 
 function hasPlaceholderTeam(match) {
@@ -605,6 +636,18 @@ export function MyBetsPage({ sessionUser }) {
         ...(current[matchId] ?? {}),
         [field]: value,
       };
+      const homeScore = Number(nextDraft.homeScore);
+      const awayScore = Number(nextDraft.awayScore);
+      const scoresAreDraw =
+        nextDraft.homeScore !== "" &&
+        nextDraft.awayScore !== "" &&
+        !Number.isNaN(homeScore) &&
+        !Number.isNaN(awayScore) &&
+        homeScore === awayScore;
+
+      if (!isKnockoutMatch(match) || !scoresAreDraw) {
+        nextDraft.classificadoId = "";
+      }
 
       if (!hasDraftChanges(match, nextDraft)) {
         const nextDrafts = { ...current };
@@ -622,10 +665,10 @@ export function MyBetsPage({ sessionUser }) {
   async function handleSubmit(matchId) {
     const match = matchesById[matchId];
     const form = getMatchFormState(match);
-    const parsedScores = parseDraftScores(form);
+    const parsedScores = parseDraftScores(match, form);
 
     if (!parsedScores) {
-      setNotice("Preencha os dois placares antes de salvar.");
+      setNotice("Preencha os dois placares e, em empate no mata-mata, escolha quem avança.");
       return;
     }
 
@@ -638,6 +681,7 @@ export function MyBetsPage({ sessionUser }) {
         match_id: matchId,
         predicted_home_score: parsedScores.homeScore,
         predicted_away_score: parsedScores.awayScore,
+        classificado_id: parsedScores.classificadoId,
       });
       await refreshOverviewAndStats();
       setDraftBets((current) => {
@@ -662,18 +706,21 @@ export function MyBetsPage({ sessionUser }) {
       return;
     }
 
-    const invalidDraft = draftEntries.find(([, draft]) => parseDraftScores(draft) === null);
+    const invalidDraft = draftEntries.find(
+      ([matchId, draft]) => parseDraftScores(matchesById[matchId], draft) === null,
+    );
     if (invalidDraft) {
-      setNotice("Preencha os dois placares em todos os jogos pendentes antes de salvar em lote.");
+      setNotice("Preencha os placares e escolha quem avança nos empates do mata-mata antes de salvar em lote.");
       return;
     }
 
     const batchPayload = draftEntries.map(([matchId, draft]) => {
-      const parsedScores = parseDraftScores(draft);
+      const parsedScores = parseDraftScores(matchesById[matchId], draft);
       return {
         match_id: matchId,
         home_score: parsedScores.homeScore,
         away_score: parsedScores.awayScore,
+        classificado_id: parsedScores.classificadoId,
       };
     });
 
@@ -698,12 +745,30 @@ export function MyBetsPage({ sessionUser }) {
   }
 
   function handleEditFieldChange(betId, field, value) {
+    const bet = (overview?.submitted_bets ?? []).find((submittedBet) => submittedBet.bet_id === betId);
+
     setEditForms((current) => ({
       ...current,
-      [betId]: {
-        ...current[betId],
-        [field]: value,
-      },
+      [betId]: (() => {
+        const nextForm = {
+          ...current[betId],
+          [field]: value,
+        };
+        const homeScore = Number(nextForm.homeScore);
+        const awayScore = Number(nextForm.awayScore);
+        const scoresAreDraw =
+          nextForm.homeScore !== "" &&
+          nextForm.awayScore !== "" &&
+          !Number.isNaN(homeScore) &&
+          !Number.isNaN(awayScore) &&
+          homeScore === awayScore;
+
+        if (!isKnockoutMatch(bet?.match) || !scoresAreDraw) {
+          nextForm.classificadoId = "";
+        }
+
+        return nextForm;
+      })(),
     }));
   }
 
@@ -714,6 +779,10 @@ export function MyBetsPage({ sessionUser }) {
       [bet.bet_id]: {
         homeScore: String(bet.predicted_home_score),
         awayScore: String(bet.predicted_away_score),
+        classificadoId:
+          bet.classificado_id === undefined || bet.classificado_id === null
+            ? ""
+            : String(bet.classificado_id),
       },
     }));
     setNotice("");
@@ -733,12 +802,10 @@ export function MyBetsPage({ sessionUser }) {
 
   async function handleEditSubmit(bet) {
     const form = editForms[bet.bet_id];
-    const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
-    const homeScore = Number(form?.homeScore);
-    const awayScore = Number(form?.awayScore);
+    const parsedScores = parseDraftScores(bet.match, form);
 
-    if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
-      setNotice("Preencha os dois placares antes de salvar a edicao.");
+    if (!parsedScores) {
+      setNotice("Preencha os placares e, em empate no mata-mata, escolha quem avança.");
       return;
     }
 
@@ -748,8 +815,9 @@ export function MyBetsPage({ sessionUser }) {
 
     try {
       const response = await updateBet(sessionUser.accessToken, bet.bet_id, {
-        predicted_home_score: homeScore,
-        predicted_away_score: awayScore,
+        predicted_home_score: parsedScores.homeScore,
+        predicted_away_score: parsedScores.awayScore,
+        classificado_id: parsedScores.classificadoId,
       });
       await refreshOverviewAndStats();
       setEditingBetId("");
@@ -1157,7 +1225,20 @@ export function MyBetsPage({ sessionUser }) {
             const editForm = editForms[bet.bet_id] ?? {
               homeScore: String(bet.predicted_home_score),
               awayScore: String(bet.predicted_away_score),
+              classificadoId:
+                bet.classificado_id === undefined || bet.classificado_id === null
+                  ? ""
+                  : String(bet.classificado_id),
             };
+            const editHomeScore = Number(editForm.homeScore);
+            const editAwayScore = Number(editForm.awayScore);
+            const shouldEditChooseClassifier =
+              isKnockoutMatch(bet.match) &&
+              editForm.homeScore !== "" &&
+              editForm.awayScore !== "" &&
+              !Number.isNaN(editHomeScore) &&
+              !Number.isNaN(editAwayScore) &&
+              editHomeScore === editAwayScore;
 
             return (
               <article key={bet.bet_id} className="panel px-5 py-5">
@@ -1226,6 +1307,40 @@ export function MyBetsPage({ sessionUser }) {
                       </label>
                     </div>
 
+                    {shouldEditChooseClassifier ? (
+                      <div className="rounded-2xl border border-accent/20 bg-accent/5 px-4 py-4">
+                        <p className="text-center text-xs font-semibold uppercase tracking-[0.22em] text-accent">
+                          Quem avança de fase?
+                        </p>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          {[
+                            { id: "1", label: bet.match.home_team },
+                            { id: "2", label: bet.match.away_team },
+                          ].map((option) => {
+                            const selected = String(editForm.classificadoId ?? "") === option.id;
+
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                  selected
+                                    ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_14px_rgba(234,179,8,0.35)]"
+                                    : "border-line/80 bg-canvas/70 text-ink hover:border-accent/50 hover:bg-accent/10"
+                                }`}
+                                onClick={() =>
+                                  handleEditFieldChange(bet.bet_id, "classificadoId", option.id)
+                                }
+                                disabled={savingBetId === bet.bet_id}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="flex flex-col gap-3 sm:flex-row">
                       <button
                         type="submit"
@@ -1254,6 +1369,11 @@ export function MyBetsPage({ sessionUser }) {
                         <p className="mt-3 text-2xl font-semibold text-ink">
                           {bet.predicted_home_score} x {bet.predicted_away_score}
                         </p>
+                        {bet.classificado_team ? (
+                          <p className="mt-3 rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-sm font-semibold text-accent">
+                            Classificado: {bet.classificado_team}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="rounded-3xl border border-line/80 bg-canvas/80 px-4 py-4">
                         <p className="text-xs uppercase tracking-[0.22em] text-muted">Resultado</p>

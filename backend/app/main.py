@@ -21,13 +21,16 @@ BET_LOCK_MINUTES = 30
 SAO_PAULO_TZ = timezone(timedelta(hours=-3))
 OUTCOME = Literal["home", "away", "draw"]
 GROUP_LABELS = [f"Grupo {letter}" for letter in "ABCDEFGHIJKL"]
+CLASSIFIER_HOME = 1
+CLASSIFIER_AWAY = 2
+CLASSIFIER_OPTIONS = {CLASSIFIER_HOME, CLASSIFIER_AWAY}
 
 USER_COLUMNS = "id, name, username, email, password_hash, is_admin, department, pagou, is_paid_pool, emoji"
 MATCH_COLUMNS = (
     "id, time_a, time_b, data_hora, fase, grupo, tournament_phase, sub_phase, "
-    "estadio, placar_a, placar_b, finalizado"
+    "estadio, placar_a, placar_b, finalizado, classificado_id"
 )
-BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, created_at"
+BET_COLUMNS = "id, user_id, match_id, palpite_a, palpite_b, classificado_id, created_at"
 
 
 def get_cors_origins() -> list[str]:
@@ -94,17 +97,20 @@ class CreateBetRequest(BaseModel):
     match_id: str
     predicted_home_score: int = Field(ge=0, le=20)
     predicted_away_score: int = Field(ge=0, le=20)
+    classificado_id: int | None = None
 
 
 class UpdateBetRequest(BaseModel):
     predicted_home_score: int = Field(ge=0, le=20)
     predicted_away_score: int = Field(ge=0, le=20)
+    classificado_id: int | None = None
 
 
 class BatchBetRequest(BaseModel):
     match_id: str
     home_score: int = Field(ge=0, le=20)
     away_score: int = Field(ge=0, le=20)
+    classificado_id: int | None = None
 
 
 class UpdateMatchRequest(BaseModel):
@@ -125,6 +131,7 @@ class PaymentUpdateRequest(BaseModel):
 class MatchResultUpdateRequest(BaseModel):
     home_score: int = Field(ge=0, le=20)
     away_score: int = Field(ge=0, le=20)
+    classificado_id: int | None = None
 
 
 def parse_datetime(value: str) -> datetime:
@@ -281,6 +288,7 @@ def normalize_match(row: dict[str, Any]) -> dict[str, Any]:
         "status": "finished" if bool(row["finalizado"]) else "scheduled",
         "home_score": row["placar_a"],
         "away_score": row["placar_b"],
+        "classificado_id": row.get("classificado_id"),
     }
 
 
@@ -291,6 +299,7 @@ def normalize_bet(row: dict[str, Any]) -> dict[str, Any]:
         "match_id": str(row["match_id"]),
         "predicted_home_score": row["palpite_a"],
         "predicted_away_score": row["palpite_b"],
+        "classificado_id": row.get("classificado_id"),
         "created_at": db_datetime_to_iso(row["created_at"]),
     }
 
@@ -625,6 +634,75 @@ def get_outcome(home_score: int, away_score: int) -> OUTCOME:
     return "draw"
 
 
+def is_knockout_match(match: dict[str, Any]) -> bool:
+    return match.get("tournament_phase") == "Fase Mata-Mata" or match.get("phase") == "knockout"
+
+
+def get_team_name_by_classifier(match: dict[str, Any], classificado_id: int | None) -> str | None:
+    if classificado_id == CLASSIFIER_HOME:
+        return str(match["home_team"])
+    if classificado_id == CLASSIFIER_AWAY:
+        return str(match["away_team"])
+    return None
+
+
+def normalize_classifier_id(value: int | None, *, required: bool) -> int | None:
+    if value is None:
+        if required:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Escolha quem avança no mata-mata quando o placar for empate.",
+            )
+        return None
+
+    try:
+        classifier_id = int(value)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Classificado inválido. Use 1 para o time da casa ou 2 para o visitante.",
+        ) from error
+
+    if classifier_id not in CLASSIFIER_OPTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Classificado inválido. Use 1 para o time da casa ou 2 para o visitante.",
+        )
+
+    return classifier_id
+
+
+def resolve_bet_classifier_id(
+    match: dict[str, Any],
+    predicted_home_score: int,
+    predicted_away_score: int,
+    classificado_id: int | None,
+) -> int | None:
+    predicted_draw = predicted_home_score == predicted_away_score
+
+    if not is_knockout_match(match) or not predicted_draw:
+        return None
+
+    return normalize_classifier_id(classificado_id, required=True)
+
+
+def resolve_match_result_classifier_id(
+    match: dict[str, Any],
+    home_score: int,
+    away_score: int,
+    classificado_id: int | None,
+) -> int | None:
+    if not is_knockout_match(match):
+        return None
+
+    if home_score > away_score:
+        return CLASSIFIER_HOME
+    if away_score > home_score:
+        return CLASSIFIER_AWAY
+
+    return normalize_classifier_id(classificado_id, required=True)
+
+
 def evaluate_bet(match: dict[str, Any], bet: dict[str, Any]) -> dict[str, Any]:
     if not is_match_finished(match):
         return {
@@ -633,7 +711,8 @@ def evaluate_bet(match: dict[str, Any], bet: dict[str, Any]) -> dict[str, Any]:
             "exact_hit": False,
             "draw_tendency_hit": False,
             "winner_tendency_hit": False,
-            "reason": "Partida ainda nao finalizada.",
+            "classifier_bonus": False,
+            "reason": "Partida ainda não finalizada.",
         }
 
     actual_home = match["home_score"]
@@ -647,15 +726,61 @@ def evaluate_bet(match: dict[str, Any], bet: dict[str, Any]) -> dict[str, Any]:
     draw_tendency_hit = not exact_hit and actual_outcome == "draw" and predicted_outcome == "draw"
     winner_tendency_hit = not exact_hit and actual_outcome in {"home", "away"} and actual_outcome == predicted_outcome
 
+    classifier_bonus = False
+    actual_classifier_id = match.get("classificado_id")
+    predicted_classifier_id = bet.get("classificado_id")
+
+    if is_knockout_match(match):
+        if predicted_outcome == "draw":
+            if actual_outcome != "draw":
+                points = 0
+                reason = "Sem pontuação."
+            else:
+                base_points = 5 if exact_hit else 2
+                classifier_bonus = (
+                    actual_classifier_id is not None
+                    and predicted_classifier_id is not None
+                    and int(actual_classifier_id) == int(predicted_classifier_id)
+                )
+                points = base_points + int(classifier_bonus)
+
+                if exact_hit and classifier_bonus:
+                    reason = "Placar exato e classificado correto."
+                elif exact_hit:
+                    reason = "Placar exato."
+                elif classifier_bonus:
+                    reason = "Empate correto e classificado correto."
+                else:
+                    reason = "Acerto de tendência."
+        elif exact_hit:
+            points = 5
+            reason = "Placar exato."
+        elif winner_tendency_hit:
+            points = 2
+            reason = "Acerto de tendência."
+        else:
+            points = 0
+            reason = "Sem pontuação."
+
+        return {
+            "counted": True,
+            "points": points,
+            "exact_hit": exact_hit,
+            "draw_tendency_hit": draw_tendency_hit,
+            "winner_tendency_hit": winner_tendency_hit,
+            "classifier_bonus": classifier_bonus,
+            "reason": reason,
+        }
+
     if exact_hit:
         points = 2
         reason = "Placar exato."
     elif draw_tendency_hit or winner_tendency_hit:
         points = 1
-        reason = "Acerto de tendencia."
+        reason = "Acerto de tendência."
     else:
         points = 0
-        reason = "Sem pontuacao."
+        reason = "Sem pontuação."
 
     return {
         "counted": True,
@@ -663,6 +788,7 @@ def evaluate_bet(match: dict[str, Any], bet: dict[str, Any]) -> dict[str, Any]:
         "exact_hit": exact_hit,
         "draw_tendency_hit": draw_tendency_hit,
         "winner_tendency_hit": winner_tendency_hit,
+        "classifier_bonus": False,
         "reason": reason,
     }
 
@@ -729,11 +855,16 @@ def build_ranking(
                 "phase": match.get("phase", "group"),
                 "status": match["status"],
                 "predicted_score": f'{bet["predicted_home_score"]} x {bet["predicted_away_score"]}',
+                "predicted_classificado_id": bet.get("classificado_id"),
+                "predicted_classificado_team": get_team_name_by_classifier(match, bet.get("classificado_id")),
                 "actual_score": None if not is_match_finished(match) else f'{match["home_score"]} x {match["away_score"]}',
+                "actual_classificado_id": match.get("classificado_id"),
+                "actual_classificado_team": get_team_name_by_classifier(match, match.get("classificado_id")),
                 "points": evaluation["points"],
                 "exact_hit": evaluation["exact_hit"],
                 "draw_tendency_hit": evaluation["draw_tendency_hit"],
                 "winner_tendency_hit": evaluation["winner_tendency_hit"],
+                "classifier_bonus": evaluation["classifier_bonus"],
                 "reason": evaluation["reason"],
                 "created_at": bet["created_at"],
             }
@@ -1038,6 +1169,8 @@ def serialize_match(match: dict[str, Any]) -> dict[str, Any]:
         "status": match["status"],
         "home_score": match["home_score"],
         "away_score": match["away_score"],
+        "classificado_id": match.get("classificado_id"),
+        "classificado_team": get_team_name_by_classifier(match, match.get("classificado_id")),
         "betting_open": is_match_open_for_bet(match),
         "betting_closed_reason": get_betting_closed_reason(match),
         "has_result": is_match_finished(match),
@@ -1388,6 +1521,8 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
             "bet_id": existing_bet["id"],
             "predicted_home_score": existing_bet["predicted_home_score"],
             "predicted_away_score": existing_bet["predicted_away_score"],
+            "classificado_id": existing_bet.get("classificado_id"),
+            "classificado_team": get_team_name_by_classifier(match, existing_bet.get("classificado_id")),
             "created_at": existing_bet["created_at"],
         }
         upcoming_matches.append(match_payload)
@@ -1411,6 +1546,8 @@ def get_my_bets_overview(current_user: dict[str, Any] = Depends(get_current_user
                 "created_at": bet["created_at"],
                 "predicted_home_score": bet["predicted_home_score"],
                 "predicted_away_score": bet["predicted_away_score"],
+                "classificado_id": bet.get("classificado_id"),
+                "classificado_team": get_team_name_by_classifier(match, bet.get("classificado_id")),
                 "match": {
                     **serialize_match(match),
                 },
@@ -1451,7 +1588,7 @@ def create_bet(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     if current_user["role"] != "user":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuarios comuns podem apostar.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Somente usuários comuns podem apostar.")
 
     match = get_match(payload.match_id)
     betting_closed_reason = get_betting_closed_reason(match)
@@ -1469,14 +1606,20 @@ def create_bet(
         )
 
     created_at = now_for_database()
+    classificado_id = resolve_bet_classifier_id(
+        match,
+        payload.predicted_home_score,
+        payload.predicted_away_score,
+        payload.classificado_id,
+    )
 
     try:
         with db_cursor(commit=True) as cursor:
             new_bet_id = next_bet_id(cursor)
             cursor.execute(
                 """
-                INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, classificado_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     new_bet_id,
@@ -1484,6 +1627,7 @@ def create_bet(
                     payload.match_id,
                     payload.predicted_home_score,
                     payload.predicted_away_score,
+                    classificado_id,
                     created_at,
                 ),
             )
@@ -1498,6 +1642,8 @@ def create_bet(
         "match_id": payload.match_id,
         "predicted_home_score": payload.predicted_home_score,
         "predicted_away_score": payload.predicted_away_score,
+        "classificado_id": classificado_id,
+        "classificado_team": get_team_name_by_classifier(match, classificado_id),
         "created_at": db_datetime_to_iso(created_at),
     }
 
@@ -1521,7 +1667,7 @@ def upsert_bets_batch(
             detail="Envie pelo menos um palpite para salvar.",
         )
 
-    valid_bets: list[BatchBetRequest] = []
+    valid_bets: list[tuple[BatchBetRequest, int | None]] = []
     skipped_bets: list[dict[str, str]] = []
 
     for bet_payload in payload:
@@ -1536,22 +1682,29 @@ def upsert_bets_batch(
             )
             continue
 
-        valid_bets.append(bet_payload)
+        classificado_id = resolve_bet_classifier_id(
+            match,
+            bet_payload.home_score,
+            bet_payload.away_score,
+            bet_payload.classificado_id,
+        )
+        valid_bets.append((bet_payload, classificado_id))
 
     saved_match_ids: list[str] = []
     created_at = now_for_database()
 
     if valid_bets:
         with db_cursor(commit=True) as cursor:
-            for bet_payload in valid_bets:
+            for bet_payload, classificado_id in valid_bets:
                 new_bet_id = next_bet_id(cursor)
                 cursor.execute(
                     """
-                    INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO bets (id, user_id, match_id, palpite_a, palpite_b, classificado_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         palpite_a = VALUES(palpite_a),
-                        palpite_b = VALUES(palpite_b)
+                        palpite_b = VALUES(palpite_b),
+                        classificado_id = VALUES(classificado_id)
                     """,
                     (
                         new_bet_id,
@@ -1559,6 +1712,7 @@ def upsert_bets_batch(
                         bet_payload.match_id,
                         bet_payload.home_score,
                         bet_payload.away_score,
+                        classificado_id,
                         created_at,
                     ),
                 )
@@ -1591,17 +1745,26 @@ def update_bet(
             detail=betting_closed_reason,
         )
 
+    classificado_id = resolve_bet_classifier_id(
+        match,
+        payload.predicted_home_score,
+        payload.predicted_away_score,
+        payload.classificado_id,
+    )
+
     with db_cursor(commit=True) as cursor:
         cursor.execute(
             """
             UPDATE bets
             SET palpite_a = %s,
-                palpite_b = %s
+                palpite_b = %s,
+                classificado_id = %s
             WHERE id = %s AND user_id = %s
             """,
             (
                 payload.predicted_home_score,
                 payload.predicted_away_score,
+                classificado_id,
                 bet_id,
                 current_user["id"],
             ),
@@ -1615,6 +1778,8 @@ def update_bet(
             "match_id": updated_bet["match_id"],
             "predicted_home_score": updated_bet["predicted_home_score"],
             "predicted_away_score": updated_bet["predicted_away_score"],
+            "classificado_id": updated_bet.get("classificado_id"),
+            "classificado_team": get_team_name_by_classifier(match, updated_bet.get("classificado_id")),
             "created_at": updated_bet["created_at"],
         },
     }
@@ -1794,7 +1959,13 @@ def update_match_result(
     payload: MatchResultUpdateRequest,
     _: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
-    get_match(match_id)
+    match = get_match(match_id)
+    classificado_id = resolve_match_result_classifier_id(
+        match,
+        payload.home_score,
+        payload.away_score,
+        payload.classificado_id,
+    )
 
     with db_cursor(commit=True) as cursor:
         cursor.execute(
@@ -1802,10 +1973,11 @@ def update_match_result(
             UPDATE matches
             SET placar_a = %s,
                 placar_b = %s,
+                classificado_id = %s,
                 finalizado = 1
             WHERE id = %s
             """,
-            (payload.home_score, payload.away_score, match_id),
+            (payload.home_score, payload.away_score, classificado_id, match_id),
         )
 
     updated_match = get_match(match_id)

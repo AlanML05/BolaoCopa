@@ -13,6 +13,10 @@ function getTournamentPhaseLabel(match) {
   return match.tournament_phase || (match.phase === "knockout" ? "Fase Mata-Mata" : "Fase de Grupos");
 }
 
+function isKnockoutMatch(match) {
+  return getTournamentPhaseLabel(match) === "Fase Mata-Mata" || match.phase === "knockout";
+}
+
 function getSubPhaseLabel(match) {
   return match.sub_phase || match.stage || match.group || match.grupo || "Sem sub-fase";
 }
@@ -70,8 +74,23 @@ export function MatchBetCard({
   const tournamentPhaseLabel = getTournamentPhaseLabel(match);
   const subPhaseLabel = getSubPhaseLabel(match);
   const crowdStatsMessage = getCrowdStatsMessage(stats, match);
+  const homeScore = formState.homeScore;
+  const awayScore = formState.awayScore;
+  const hasFilledScores = homeScore !== "" && awayScore !== "";
+  const shouldChooseClassifier =
+    isKnockoutMatch(match) &&
+    hasFilledScores &&
+    Number(homeScore) === Number(awayScore) &&
+    !Number.isNaN(Number(homeScore)) &&
+    !Number.isNaN(Number(awayScore));
+  const selectedClassifierId =
+    formState.classificadoId === null || formState.classificadoId === undefined
+      ? ""
+      : String(formState.classificadoId);
   const bettingEnabled =
     isScheduled && hasValidKickoff && !closedByClientClock && !waitingForDefinedTeams;
+  const classifierSelected = !shouldChooseClassifier || ["1", "2"].includes(selectedClassifierId);
+  const saveEnabled = bettingEnabled && classifierSelected;
   const closedReason =
     (waitingForDefinedTeams ? WAITING_FOR_TEAMS_MESSAGE : "") ||
     (!hasValidKickoff
@@ -121,6 +140,11 @@ export function MatchBetCard({
           <p className="mt-3 text-3xl font-semibold text-ink">
             {match.existing_bet.predicted_home_score} x {match.existing_bet.predicted_away_score}
           </p>
+          {match.existing_bet.classificado_team ? (
+            <p className="mt-3 rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-sm font-semibold text-accent">
+              Classificado escolhido: {match.existing_bet.classificado_team}
+            </p>
+          ) : null}
           <p className="mt-3 text-sm text-muted">
             Registrado em {formatDateTime(match.existing_bet.created_at)}. Edições ficam no
             Histórico enquanto a janela estiver aberta.
@@ -155,7 +179,7 @@ export function MatchBetCard({
                 min="0"
                 max="20"
                 className="field text-center text-xl font-semibold"
-                value={formState.homeScore}
+                value={homeScore}
                 onChange={(event) => onFieldChange(match.id, "homeScore", event.target.value)}
                 disabled={!bettingEnabled || submitting}
               />
@@ -172,12 +196,49 @@ export function MatchBetCard({
                 min="0"
                 max="20"
                 className="field text-center text-xl font-semibold"
-                value={formState.awayScore}
+                value={awayScore}
                 onChange={(event) => onFieldChange(match.id, "awayScore", event.target.value)}
                 disabled={!bettingEnabled || submitting}
               />
             </div>
           </div>
+
+          {shouldChooseClassifier ? (
+            <div className="rounded-2xl border border-accent/20 bg-accent/5 px-4 py-4">
+              <p className="text-center text-xs font-semibold uppercase tracking-[0.22em] text-accent">
+                Quem avança de fase?
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {[
+                  { id: "1", label: match.home_team },
+                  { id: "2", label: match.away_team },
+                ].map((option) => {
+                  const selected = selectedClassifierId === option.id;
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                        selected
+                          ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_14px_rgba(234,179,8,0.35)]"
+                          : "border-line/80 bg-canvas/70 text-ink hover:border-accent/50 hover:bg-accent/10"
+                      }`}
+                      onClick={() => onFieldChange(match.id, "classificadoId", option.id)}
+                      disabled={!bettingEnabled || submitting}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!classifierSelected ? (
+                <p className="mt-3 text-center text-xs font-semibold text-warning">
+                  Escolha o classificado para salvar este empate.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {crowdStatsMessage ? (
             <p className="rounded-xl border border-gray-700/70 bg-gray-800/70 px-3 py-2 text-center text-xs text-gray-300">
@@ -200,7 +261,7 @@ export function MatchBetCard({
                 <button
                   type="submit"
                   className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/70 hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={!bettingEnabled || submitting}
+                  disabled={!saveEnabled || submitting}
                 >
                   {submitting ? "Salvando..." : "✓ Salvar"}
                 </button>

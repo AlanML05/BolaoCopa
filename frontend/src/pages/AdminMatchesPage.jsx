@@ -18,9 +18,17 @@ function createResultForms(matches) {
         match.home_score === null || match.home_score === undefined ? "" : String(match.home_score),
       awayScore:
         match.away_score === null || match.away_score === undefined ? "" : String(match.away_score),
+      classificadoId:
+        match.classificado_id === null || match.classificado_id === undefined
+          ? ""
+          : String(match.classificado_id),
     };
     return accumulator;
   }, {});
+}
+
+function isKnockoutMatch(match) {
+  return match?.tournament_phase === "Fase Mata-Mata" || match?.phase === "knockout";
 }
 
 export function AdminMatchesPage({ sessionUser }) {
@@ -75,12 +83,30 @@ export function AdminMatchesPage({ sessionUser }) {
   }, [sessionUser.accessToken]);
 
   function handleResultFieldChange(matchId, field, value) {
+    const match = dashboard?.matches?.find((currentMatch) => currentMatch.id === matchId);
+
     setResultForms((current) => ({
       ...current,
-      [matchId]: {
-        ...current[matchId],
-        [field]: value,
-      },
+      [matchId]: (() => {
+        const nextForm = {
+          ...current[matchId],
+          [field]: value,
+        };
+        const homeScore = Number(nextForm.homeScore);
+        const awayScore = Number(nextForm.awayScore);
+        const scoresAreDraw =
+          nextForm.homeScore !== "" &&
+          nextForm.awayScore !== "" &&
+          !Number.isNaN(homeScore) &&
+          !Number.isNaN(awayScore) &&
+          homeScore === awayScore;
+
+        if (!isKnockoutMatch(match) || !scoresAreDraw) {
+          nextForm.classificadoId = "";
+        }
+
+        return nextForm;
+      })(),
     }));
   }
 
@@ -89,9 +115,22 @@ export function AdminMatchesPage({ sessionUser }) {
     const hasBlankScore = form?.homeScore === "" || form?.awayScore === "";
     const homeScore = Number(form?.homeScore);
     const awayScore = Number(form?.awayScore);
+    const match = dashboard?.matches?.find((currentMatch) => currentMatch.id === matchId);
+    const classificadoId = Number(form?.classificadoId);
 
     if (hasBlankScore || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
       setError("Preencha os dois placares reais antes de salvar.");
+      setNotice("");
+      return;
+    }
+
+    if (
+      isKnockoutMatch(match) &&
+      homeScore === awayScore &&
+      classificadoId !== 1 &&
+      classificadoId !== 2
+    ) {
+      setError("Escolha quem avançou quando o jogo do mata-mata terminar empatado.");
       setNotice("");
       return;
     }
@@ -104,6 +143,8 @@ export function AdminMatchesPage({ sessionUser }) {
       const response = await updateMatchResult(sessionUser.accessToken, matchId, {
         home_score: homeScore,
         away_score: awayScore,
+        classificado_id:
+          isKnockoutMatch(match) && homeScore === awayScore ? classificadoId : null,
       });
       await refreshDashboard();
       setNotice(response.message);

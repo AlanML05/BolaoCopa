@@ -17,6 +17,10 @@ function getSubPhase(match) {
   return match.sub_phase ?? match.stage;
 }
 
+function isKnockoutMatch(match) {
+  return getTournamentPhase(match) === "Fase Mata-Mata" || match.phase === "knockout";
+}
+
 export function MatchResultManager({
   matches,
   forms,
@@ -115,86 +119,137 @@ export function MatchResultManager({
           </section>
         ) : null}
 
-        {filteredMatches.map((match) => (
-          <article key={match.id} className="panel-strong px-5 py-5 transition hover:border-accent/30">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="eyebrow">
-                  {getTournamentPhase(match)} - {getSubPhase(match)}
-                </p>
-                <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
-                  {match.label}
-                </h4>
-                <p className="mt-2 text-sm text-muted">
-                  {formatDateTime(match.kickoff_at)} - {match.stadium}
-                </p>
+        {filteredMatches.map((match) => {
+          const form = forms[match.id] ?? {};
+          const homeScore = Number(form.homeScore);
+          const awayScore = Number(form.awayScore);
+          const shouldChooseClassifier =
+            isKnockoutMatch(match) &&
+            form.homeScore !== "" &&
+            form.awayScore !== "" &&
+            !Number.isNaN(homeScore) &&
+            !Number.isNaN(awayScore) &&
+            homeScore === awayScore;
+          const selectedClassifierId = String(form.classificadoId ?? "");
+
+          return (
+            <article key={match.id} className="panel-strong px-5 py-5 transition hover:border-accent/30">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="eyebrow">
+                    {getTournamentPhase(match)} - {getSubPhase(match)}
+                  </p>
+                  <h4 className="mt-3 font-display text-2xl font-semibold text-ink">
+                    {match.label}
+                  </h4>
+                  <p className="mt-2 text-sm text-muted">
+                    {formatDateTime(match.kickoff_at)} - {match.stadium}
+                  </p>
+                </div>
+                <span
+                  className={`data-pill ${
+                    match.has_result
+                      ? "border-success/20 text-success"
+                      : "border-warning/20 text-warning"
+                  }`}
+                >
+                  {match.has_result ? "Finalizado" : "Sem resultado"}
+                </span>
               </div>
-              <span
-                className={`data-pill ${
-                  match.has_result
-                    ? "border-success/20 text-success"
-                    : "border-warning/20 text-warning"
-                }`}
+
+              <div className="mt-6 rounded-2xl border border-line/80 bg-canvas/80 px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.22em] text-muted">Placar atual</p>
+                <p className="mt-3 text-2xl font-semibold text-ink">
+                  {formatScore(match.home_score, match.away_score)}
+                </p>
+                {match.classificado_team ? (
+                  <p className="mt-3 rounded-xl border border-accent/20 bg-accent/5 px-3 py-2 text-sm font-semibold text-accent">
+                    Classificado: {match.classificado_team}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div>
+                  <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
+                    {match.home_team}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    className="field text-center text-xl font-semibold"
+                    value={form.homeScore ?? ""}
+                    onChange={(event) => onFieldChange(match.id, "homeScore", event.target.value)}
+                    disabled={busyMatchId === match.id}
+                  />
+                </div>
+
+                <span className="pt-6 text-center text-2xl font-semibold text-muted">x</span>
+
+                <div>
+                  <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
+                    {match.away_team}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    className="field text-center text-xl font-semibold"
+                    value={form.awayScore ?? ""}
+                    onChange={(event) => onFieldChange(match.id, "awayScore", event.target.value)}
+                    disabled={busyMatchId === match.id}
+                  />
+                </div>
+              </div>
+
+              {shouldChooseClassifier ? (
+                <div className="mt-5 rounded-2xl border border-accent/20 bg-accent/5 px-4 py-4">
+                  <p className="text-center text-xs font-semibold uppercase tracking-[0.22em] text-accent">
+                    Quem avançou de fase?
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {[
+                      { id: "1", label: match.home_team },
+                      { id: "2", label: match.away_team },
+                    ].map((option) => {
+                      const selected = selectedClassifierId === option.id;
+
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                            selected
+                              ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_14px_rgba(234,179,8,0.35)]"
+                              : "border-line/80 bg-canvas/70 text-ink hover:border-accent/50 hover:bg-accent/10"
+                          }`}
+                          onClick={() => onFieldChange(match.id, "classificadoId", option.id)}
+                          disabled={busyMatchId === match.id}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="button-primary mt-5 w-full"
+                onClick={() => onSave(match.id)}
+                disabled={busyMatchId === match.id}
               >
-                {match.has_result ? "Finalizado" : "Sem resultado"}
-              </span>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-line/80 bg-canvas/80 px-4 py-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-muted">Placar atual</p>
-              <p className="mt-3 text-2xl font-semibold text-ink">
-                {formatScore(match.home_score, match.away_score)}
-              </p>
-            </div>
-
-            <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-              <div>
-                <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
-                  {match.home_team}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="20"
-                  className="field text-center text-xl font-semibold"
-                  value={forms[match.id]?.homeScore ?? ""}
-                  onChange={(event) => onFieldChange(match.id, "homeScore", event.target.value)}
-                  disabled={busyMatchId === match.id}
-                />
-              </div>
-
-              <span className="pt-6 text-center text-2xl font-semibold text-muted">x</span>
-
-              <div>
-                <label className="mb-2 block text-xs uppercase tracking-[0.22em] text-muted">
-                  {match.away_team}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="20"
-                  className="field text-center text-xl font-semibold"
-                  value={forms[match.id]?.awayScore ?? ""}
-                  onChange={(event) => onFieldChange(match.id, "awayScore", event.target.value)}
-                  disabled={busyMatchId === match.id}
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="button-primary mt-5 w-full"
-              onClick={() => onSave(match.id)}
-              disabled={busyMatchId === match.id}
-            >
-              {busyMatchId === match.id
-                ? "Salvando..."
-                : match.has_result
-                  ? "Atualizar resultado"
-                  : "Salvar resultado"}
-            </button>
-          </article>
-        ))}
+                {busyMatchId === match.id
+                  ? "Salvando..."
+                  : match.has_result
+                    ? "Atualizar resultado"
+                    : "Salvar resultado"}
+              </button>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
